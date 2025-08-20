@@ -69,7 +69,7 @@ packaging==24.1
 pandas==2.2.2
 pandocfilters==1.5.1
 parso==0.8.4
-pillow==10.3.0
+pillow==10.2.0
 platformdirs==4.2.2
 playwright==1.49.1
 prometheus_client==0.20.0
