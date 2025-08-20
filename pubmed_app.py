@@ -84,26 +84,26 @@ if menu == "Run Tests":
                 remark_img = st.file_uploader("Attach image with remark (optional)", type=["png", "jpg", "jpeg"], key=f"{row['Test Case ID']}_img")
 
                 if tested and not st.session_state.get(f"{test_key}_submitted", False):
-                    global progress
+                    global progress  # This MUST come before using progress
                     remark_img_filename = ""
                     if remark_img is not None:
                         safe_name = f"remark_{row['Test Case ID']}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img.name}"
                         with open(os.path.join(IMAGES_DIR, safe_name), "wb") as f:
                             f.write(remark_img.getbuffer())
-                        remark_img_filename = safe_name
+                            remark_img_filename = safe_name
+                            new_entry = {
+                                "Test Case ID": row["Test Case ID"],
+                                "Date": datetime.date.today(),
+                                "Status": "Tested",
+                                "Remarks": remark,
+                                "User": user,
+                                "Remark Image Filename": remark_img_filename
+                            }
+                            progress = pd.concat([progress, pd.DataFrame([new_entry])], ignore_index=True)
+                            save_progress(progress)
+                            st.success(f"{row['Test Case ID']} marked as tested!")
+                            st.session_state[f"{test_key}_submitted"] = True
 
-                    new_entry = {
-                        "Test Case ID": row["Test Case ID"],
-                        "Date": datetime.date.today(),
-                        "Status": "Tested",
-                        "Remarks": remark,
-                        "User": user,
-                        "Remark Image Filename": remark_img_filename
-                    }
-                    progress = pd.concat([progress, pd.DataFrame([new_entry])], ignore_index=True)
-                    save_progress(progress)
-                    st.success(f"{row['Test Case ID']} marked as tested!")
-                    st.session_state[f"{test_key}_submitted"] = True
 
     else:
         st.dataframe(test_cases.drop(columns=["Image Filename"], errors="ignore"))
