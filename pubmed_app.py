@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import datetime
 import os
+import re
 
 # ---------- File Paths ----------
-DATA_FILE = "test_cases.xlsx"         # <-- Excel for test cases
-PROGRESS_FILE = "progress.csv"        # <-- CSV for progress
+DATA_FILE = "test_cases.xlsx"
+PROGRESS_FILE = "progress.csv"
 REPORTS_DIR = "reports"
 
 # ---------- Ensure folders exist ----------
@@ -14,15 +15,15 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 # ---------- Initialize Files ----------
 if not os.path.exists(DATA_FILE):
     df = pd.DataFrame(columns=["Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result"])
-    df.to_excel(DATA_FILE, index=False)
+    df.to_excel(DATA_FILE, index=False, engine='openpyxl')
 
 if not os.path.exists(PROGRESS_FILE):
     progress_df = pd.DataFrame(columns=["Test Case ID", "Date", "Status", "Remarks", "User"])
     progress_df.to_csv(PROGRESS_FILE, index=False)
 
 # ---------- Load Data ----------
-test_cases = pd.read_excel(DATA_FILE)
-progress = pd.read_csv(PROGRESS_FILE)
+test_cases = pd.read_excel(DATA_FILE, engine='openpyxl')
+progress = pd.read_csv(PROGRESS_FILE, parse_dates=["Date"])
 
 # ---------- Sidebar ----------
 st.sidebar.title("🧪 Test Case Tracker")
@@ -47,7 +48,7 @@ if menu == "Run Tests":
         remark_key = f"{row['Test Case ID']}_remark"
         remark = st.text_area("Add remark (optional)", key=remark_key)
 
-        if tested:
+        if tested and not st.session_state.get(f"{key}_submitted", False):
             new_entry = {
                 "Test Case ID": row["Test Case ID"],
                 "Date": datetime.date.today(),
@@ -55,9 +56,10 @@ if menu == "Run Tests":
                 "Remarks": remark,
                 "User": user
             }
-            progress = progress.append(new_entry, ignore_index=True)
+            progress = pd.concat([progress, pd.DataFrame([new_entry])], ignore_index=True)
             progress.to_csv(PROGRESS_FILE, index=False)
             st.success(f"{row['Test Case ID']} marked as tested!")
+            st.session_state[f"{key}_submitted"] = True
 
 # ---------- Edit Test Cases ----------
 elif menu == "Edit Test Cases":
@@ -80,16 +82,17 @@ elif menu == "Edit Test Cases":
                 "Steps": steps,
                 "Expected Result": expected
             }
-            test_cases = test_cases.append(new_row, ignore_index=True)
+            test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
             test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
             st.success("Test case added!")
 
     st.markdown("---")
     st.subheader("✏️ Edit Existing Test Cases")
-    edit_id = st.selectbox("Select Test Case ID", test_cases["Test Case ID"])
 
-    if edit_id:
+    if not test_cases.empty:
+        edit_id = st.selectbox("Select Test Case ID", test_cases["Test Case ID"])
         row = test_cases[test_cases["Test Case ID"] == edit_id].iloc[0]
+
         new_task = st.text_input("Task", row["Task"])
         new_steps = st.text_area("Steps", row["Steps"])
         new_expected = st.text_area("Expected Result", row["Expected Result"])
@@ -98,13 +101,15 @@ elif menu == "Edit Test Cases":
             test_cases.loc[test_cases["Test Case ID"] == edit_id, ["Task", "Steps", "Expected Result"]] = [new_task, new_steps, new_expected]
             test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
             st.success("Changes saved!")
+    else:
+        st.info("No test cases found.")
 
 # ---------- Progress Dashboard ----------
 elif menu == "Progress Dashboard":
     st.title("📊 Progress Dashboard")
 
     today = datetime.date.today()
-    today_tests = progress[progress["Date"] == pd.to_datetime(today)]
+    today_tests = progress[progress["Date"].dt.date == today]
     weekly_tests = progress[progress["Date"] >= pd.to_datetime(today - datetime.timedelta(days=7))]
 
     st.metric("Tested Today", len(today_tests))
@@ -113,7 +118,11 @@ elif menu == "Progress Dashboard":
 
     tested_cases = progress["Test Case ID"].nunique()
     total_cases = test_cases["Test Case ID"].nunique()
-    st.progress(tested_cases / total_cases if total_cases else 0)
+
+    if total_cases > 0:
+        st.progress(tested_cases / total_cases)
+    else:
+        st.info("No test cases available to track progress.")
 
     st.subheader("🗂️ Test Case History")
     st.dataframe(progress.sort_values(by="Date", ascending=False))
@@ -128,7 +137,8 @@ elif menu == "Download Report":
         st.info("No test progress found.")
     else:
         report_date = datetime.date.today().strftime("%Y%m%d")
-        filename = f"{REPORTS_DIR}/report_{user}_{report_date}.csv"
+        safe_user = re.sub(r'\W+', '_', user.strip())
+        filename = f"{REPORTS_DIR}/report_{safe_user}_{report_date}.csv"
 
         user_progress.to_csv(filename, index=False)
 
