@@ -4,50 +4,51 @@ import datetime
 import os
 import re
 
-# ---------- File Paths ----------
+# ---------- Constants ----------
 DATA_FILE = "test_cases.xlsx"
+PROGRESS_FILE = "progress.csv"
 REPORTS_DIR = "reports"
 IMAGES_DIR = "images"
-USERS_DIR = "users"
 
-# ---------- Ensure folders exist ----------
+# ---------- Ensure directories exist ----------
 os.makedirs(REPORTS_DIR, exist_ok=True)
 os.makedirs(IMAGES_DIR, exist_ok=True)
-os.makedirs(USERS_DIR, exist_ok=True)
 
-# ---------- Initialize Test Cases ----------
-if not os.path.exists(DATA_FILE):
-    df = pd.DataFrame(columns=["Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result", "Image Filename"])
-    df.to_excel(DATA_FILE, index=False, engine='openpyxl')
+# ---------- Load Data into Session State ----------
+def load_data():
+    if "test_cases" not in st.session_state:
+        if os.path.exists(DATA_FILE):
+            st.session_state.test_cases = pd.read_excel(DATA_FILE, engine='openpyxl')
+        else:
+            st.session_state.test_cases = pd.DataFrame(columns=[
+                "Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result", "Image Filename"
+            ])
 
-# ---------- Load Test Cases ----------
-test_cases = pd.read_excel(DATA_FILE, engine='openpyxl')
+    if "progress" not in st.session_state:
+        if os.path.exists(PROGRESS_FILE):
+            df = pd.read_csv(PROGRESS_FILE)
+            df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+            st.session_state.progress = df
+        else:
+            st.session_state.progress = pd.DataFrame(columns=[
+                "Test Case ID", "Date", "Status", "Remarks", "User", "Remark Image Filename"
+            ])
+
+load_data()
+test_cases = st.session_state.test_cases
+progress = st.session_state.progress
 
 # ---------- Sidebar ----------
 st.sidebar.title("🧪 Test Case Tracker")
 menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report"])
-user = st.sidebar.text_input("Tester Name", value="Tester").strip()
 st.sidebar.markdown("---")
-if st.sidebar.button("🔄 Refresh All"):
-    st.session_state.clear()
-    st.experimental_rerun()
-
-# ---------- User-specific progress file ----------
-safe_user = re.sub(r'\W+', '_', user)
-USER_PROGRESS_FILE = f"{USERS_DIR}/{safe_user}_progress.csv"
-
-if not os.path.exists(USER_PROGRESS_FILE):
-    pd.DataFrame(columns=["Test Case ID", "Date", "Status", "Remarks", "User", "Remark Image Filename"]).to_csv(USER_PROGRESS_FILE, index=False)
-
-progress = pd.read_csv(USER_PROGRESS_FILE)
-if not progress.empty:
-    progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')
+user = st.sidebar.text_input("Tester Name", value="Tester")
 
 # ---------- Helper Functions ----------
 def generate_next_id():
     if test_cases.empty:
         return "TC001"
-    ids = test_cases["Test Case ID"].dropna().tolist()
+    ids = test_cases["Test Case ID"].dropna().astype(str)
     nums = [int(re.sub(r"\D", "", x)) for x in ids if re.sub(r"\D", "", x).isdigit()]
     next_num = max(nums) + 1 if nums else 1
     return f"TC{next_num:03d}"
@@ -56,13 +57,13 @@ def save_test_cases():
     test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
 
 def save_progress():
-    progress.to_csv(USER_PROGRESS_FILE, index=False)
+    progress.to_csv(PROGRESS_FILE, index=False)
 
 # ---------- Run Tests ----------
 if menu == "Run Tests":
     st.title("✅ Run Test Cases")
 
-    view_mode = st.radio("View Mode", ["Expanded View", "Table View"], horizontal=True)
+    view_mode = st.radio("Choose view mode:", ["Expanded View", "Table View"], horizontal=True)
 
     if view_mode == "Expanded View":
         if 'expanded_state' not in st.session_state:
@@ -87,19 +88,19 @@ if menu == "Run Tests":
                         st.image(img_path, caption="Attached Image", use_column_width=True)
 
                 test_key = f"{row['Test Case ID']}_tested"
-                if test_key not in st.session_state:
-                    st.session_state[test_key] = False
-
                 tested = st.checkbox("Mark as Tested", key=test_key)
+
                 remark = st.text_area("Remarks", key=f"{row['Test Case ID']}_remark")
                 remark_img = st.file_uploader("Attach image with remark (optional)", type=["png", "jpg", "jpeg"], key=f"{row['Test Case ID']}_img")
 
                 if tested and not st.session_state.get(f"{test_key}_submitted", False):
                     remark_img_filename = ""
                     if remark_img:
-                        remark_img_filename = f"remark_{row['Test Case ID']}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img.name}"
-                        with open(os.path.join(IMAGES_DIR, remark_img_filename), "wb") as f:
+                        safe_name = f"remark_{row['Test Case ID']}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img.name}"
+                        img_path = os.path.join(IMAGES_DIR, safe_name)
+                        with open(img_path, "wb") as f:
                             f.write(remark_img.getbuffer())
+                        remark_img_filename = safe_name
 
                     new_entry = {
                         "Test Case ID": row["Test Case ID"],
@@ -109,14 +110,12 @@ if menu == "Run Tests":
                         "User": user,
                         "Remark Image Filename": remark_img_filename
                     }
-
-                    progress = pd.concat([progress, pd.DataFrame([new_entry])], ignore_index=True)
+                    st.session_state.progress = pd.concat([progress, pd.DataFrame([new_entry])], ignore_index=True)
                     save_progress()
+                    st.success(f"{row['Test Case ID']} marked as tested!")
                     st.session_state[f"{test_key}_submitted"] = True
-                    st.success(f"{row['Test Case ID']} marked as tested.")
 
     else:
-        st.subheader("📋 Test Cases (Table View)")
         st.dataframe(test_cases.drop(columns=["Image Filename"], errors="ignore"))
 
 # ---------- Edit Test Cases ----------
@@ -131,68 +130,56 @@ elif menu == "Edit Test Cases":
         task = st.text_input("Task")
         steps = st.text_area("Steps")
         expected = st.text_area("Expected Result")
-        imgf = st.file_uploader("Attach Image (optional)", type=["png", "jpg", "jpeg"])
+        image = st.file_uploader("Attach Image (optional)", type=["png", "jpg", "jpeg"])
 
-        if st.button("Add"):
-            global test_cases
-            fn = ""
-            if imgf:
-                fn = f"tc_{new_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{imgf.name}"
-                with open(os.path.join(IMAGES_DIR, fn), "wb") as f:
-                    f.write(imgf.getbuffer())
-            new = {
+        if st.button("Add Test Case"):
+            image_filename = ""
+            if image:
+                safe_name = f"testcase_{new_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{image.name}"
+                with open(os.path.join(IMAGES_DIR, safe_name), "wb") as f:
+                    f.write(image.getbuffer())
+                image_filename = safe_name
+
+            new_row = {
                 "Test Case ID": new_id,
                 "Page/Field": page,
                 "Module": module,
                 "Task": task,
                 "Steps": steps,
                 "Expected Result": expected,
-                "Image Filename": fn
+                "Image Filename": image_filename
             }
-            test_cases = pd.concat([test_cases, pd.DataFrame([new])], ignore_index=True)
+            st.session_state.test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
             save_test_cases()
-            st.success("Added.")
+            st.success("Test case added!")
 
-    with st.expander("⬆️ Upload Test Cases via Excel"):
-        excel = st.file_uploader("Upload Excel File", type=["xlsx"])
-        if excel:
-            df_new = pd.read_excel(excel, engine='openpyxl')
-            if all(col in df_new.columns for col in ["Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result"]):
-                existing_ids = test_cases["Test Case ID"].astype(str).tolist()
-                new_cases = df_new[~df_new["Test Case ID"].astype(str).isin(existing_ids)]
-                if not new_cases.empty:
-                    test_cases = pd.concat([test_cases, new_cases], ignore_index=True)
-                    save_test_cases()
-                    st.success(f"Uploaded {len(new_cases)} new test cases.")
-                else:
-                    st.warning("All uploaded test cases already exist.")
-            else:
-                st.error("Missing required columns in Excel.")
-
-    st.subheader("✏️ Edit or Delete Test Cases")
+    st.markdown("---")
+    st.subheader("✏️ Edit or Delete Test Case")
     if not test_cases.empty:
         selected = st.selectbox("Select Test Case ID", test_cases["Test Case ID"])
         row = test_cases[test_cases["Test Case ID"] == selected].iloc[0]
+
         page = st.text_input("Page/Field", row["Page/Field"])
         module = st.text_input("Module", row["Module"])
         task = st.text_input("Task", row["Task"])
         steps = st.text_area("Steps", row["Steps"])
         expected = st.text_area("Expected Result", row["Expected Result"])
-        new_image = st.file_uploader("Replace Image", type=["png", "jpg", "jpeg"])
+        new_image = st.file_uploader("Replace Image (optional)", type=["png", "jpg", "jpeg"])
 
         if st.button("Save Changes"):
-            img_fn = row["Image Filename"]
+            image_filename = row["Image Filename"]
             if new_image:
-                img_fn = f"tc_{selected}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{new_image.name}"
-                with open(os.path.join(IMAGES_DIR, img_fn), "wb") as f:
+                safe_name = f"testcase_{selected}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{new_image.name}"
+                with open(os.path.join(IMAGES_DIR, safe_name), "wb") as f:
                     f.write(new_image.getbuffer())
+                image_filename = safe_name
 
-            test_cases.loc[test_cases["Test Case ID"] == selected, ["Page/Field", "Module", "Task", "Steps", "Expected Result", "Image Filename"]] = [page, module, task, steps, expected, img_fn]
+            test_cases.loc[test_cases["Test Case ID"] == selected, ["Page/Field", "Module", "Task", "Steps", "Expected Result", "Image Filename"]] = [page, module, task, steps, expected, image_filename]
             save_test_cases()
-            st.success("Saved.")
+            st.success("Changes saved.")
 
         if st.button("Delete Test Case"):
-            test_cases = test_cases[test_cases["Test Case ID"] != selected]
+            st.session_state.test_cases = test_cases[test_cases["Test Case ID"] != selected]
             save_test_cases()
             st.success("Deleted.")
 
@@ -201,7 +188,7 @@ elif menu == "Progress Dashboard":
     st.title("📊 Progress Dashboard")
 
     if progress.empty:
-        st.info("No progress yet.")
+        st.info("No progress data.")
     else:
         today = datetime.date.today()
         today_tests = progress[progress["Date"].dt.date == today]
@@ -213,22 +200,26 @@ elif menu == "Progress Dashboard":
 
         tested = progress["Test Case ID"].nunique()
         total = test_cases["Test Case ID"].nunique()
-        st.progress(tested / total if total else 0.0)
+        st.progress(tested / total if total else 0)
 
-        st.subheader("📑 Test Logs")
+        st.subheader("🗂️ Test History")
         st.dataframe(progress.sort_values(by="Date", ascending=False))
 
 # ---------- Download Report ----------
 elif menu == "Download Report":
     st.title("📄 Download Report")
 
-    if progress.empty:
-        st.warning("No progress data.")
+    filtered = progress if not user.strip() else progress[progress["User"] == user]
+    if filtered.empty:
+        st.info("No progress found.")
     else:
-        filename = f"{REPORTS_DIR}/report_{safe_user}_{datetime.date.today().strftime('%Y%m%d')}.csv"
-        progress.to_csv(filename, index=False)
+        date_str = datetime.date.today().strftime("%Y%m%d")
+        safe_user = re.sub(r'\W+', '_', user)
+        report_file = f"{REPORTS_DIR}/report_{safe_user}_{date_str}.csv"
 
-        with open(filename, "rb") as f:
-            st.download_button("📥 Download CSV", f, file_name=os.path.basename(filename), mime="text/csv")
+        filtered.to_csv(report_file, index=False)
         st.success("Report ready.")
-        st.dataframe(progress)
+        st.dataframe(filtered)
+
+        with open(report_file, "rb") as f:
+            st.download_button("📥 Download CSV", f, file_name=os.path.basename(report_file), mime="text/csv")
