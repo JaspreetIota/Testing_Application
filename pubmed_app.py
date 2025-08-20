@@ -36,72 +36,74 @@ user = st.sidebar.text_input("Tester Name", value="Tester")
 if menu == "Run Tests":
     st.title("✅ Run Test Cases")
 
-    for index, row in test_cases.iterrows():
-        st.subheader(f"{row['Test Case ID']} - {row['Task']}")
-        st.write(f"**Module**: {row['Module']}")
-        st.write(f"**Steps**: {row['Steps']}")
-        st.write(f"**Expected Result**: {row['Expected Result']}")
+    if test_cases.empty:
+        st.warning("No test cases found.")
+    else:
+        for index, row in test_cases.iterrows():
+            with st.expander(f"🔹 {row['Test Case ID']} - {row['Task']}"):
+                st.markdown(f"**📄 Module**: {row['Module']}")
+                st.markdown(f"**📑 Page/Field**: {row['Page/Field']}")
+                st.markdown(f"**📝 Steps**:\n{row['Steps']}")
+                st.markdown(f"**✅ Expected Result**:\n{row['Expected Result']}")
 
-        key = f"{row['Test Case ID']}_tested"
-        tested = st.checkbox("Mark as Tested", key=key)
+                key = f"{row['Test Case ID']}_tested"
+                tested = st.checkbox("✔️ Mark as Tested", key=key)
 
-        remark_key = f"{row['Test Case ID']}_remark"
-        remark = st.text_area("Add remark (optional)", key=remark_key)
+                remark_key = f"{row['Test Case ID']}_remark"
+                remark = st.text_area("💬 Add remark (optional)", key=remark_key)
 
-        if tested and not st.session_state.get(f"{key}_submitted", False):
-            new_entry = {
-                "Test Case ID": row["Test Case ID"],
-                "Date": datetime.date.today(),
-                "Status": "Tested",
-                "Remarks": remark,
-                "User": user
-            }
-            progress = pd.concat([progress, pd.DataFrame([new_entry])], ignore_index=True)
-            progress.to_csv(PROGRESS_FILE, index=False)
-            st.success(f"{row['Test Case ID']} marked as tested!")
-            st.session_state[f"{key}_submitted"] = True
+                if tested and not st.session_state.get(f"{key}_submitted", False):
+                    new_entry = {
+                        "Test Case ID": row["Test Case ID"],
+                        "Date": datetime.date.today(),
+                        "Status": "Tested",
+                        "Remarks": remark,
+                        "User": user
+                    }
+                    progress = pd.concat([progress, pd.DataFrame([new_entry])], ignore_index=True)
+                    progress.to_csv(PROGRESS_FILE, index=False)
+                    st.success(f"{row['Test Case ID']} marked as tested!")
+                    st.session_state[f"{key}_submitted"] = True
 
 # ---------- Edit Test Cases ----------
 elif menu == "Edit Test Cases":
     st.title("📝 Edit / Add Test Cases")
-    
+
     with st.expander("➕ Add New Test Case"):
+
         def generate_next_id():
             if test_cases.empty:
                 return "TC001"
             else:
                 ids = test_cases["Test Case ID"].dropna().tolist()
-                numbers = []
-                for id_ in ids:
-                    digits = ''.join(filter(str.isdigit, id_))
-                    if digits.isdigit():
-                        numbers.append(int(digits))
-                        next_num = max(numbers) + 1 if numbers else 1
-                        return f"TC{next_num:03d}"
-    new_id = generate_next_id()
-    st.text_input("Test Case ID", value=new_id, disabled=True)
+                numbers = [int(''.join(filter(str.isdigit, i))) for i in ids if ''.join(filter(str.isdigit, i)).isdigit()]
+                next_num = max(numbers) + 1 if numbers else 1
+                return f"TC{next_num:03d}"
 
-    page = st.text_input("Page/Field")
-    module = st.text_input("Module")
-    task = st.text_input("Task")
-    steps = st.text_area("Steps")
-    expected = st.text_area("Expected Result")
+        new_id = generate_next_id()
+        st.text_input("Test Case ID", value=new_id, disabled=True)
 
-    if st.button("Add Test Case"):
-        new_row = {
-            "Test Case ID": new_id,
-            "Page/Field": page,
-            "Module": module,
-            "Task": task,
-            "Steps": steps,
-            "Expected Result": expected
-        }
-        test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
-        test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
-        st.success(f"Test case {new_id} added!")
-        
+        page = st.text_input("Page/Field")
+        module = st.text_input("Module")
+        task = st.text_input("Task")
+        steps = st.text_area("Steps")
+        expected = st.text_area("Expected Result")
+
+        if st.button("Add Test Case"):
+            new_row = {
+                "Test Case ID": new_id,
+                "Page/Field": page,
+                "Module": module,
+                "Task": task,
+                "Steps": steps,
+                "Expected Result": expected
+            }
+            test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
+            test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
+            st.success(f"Test case {new_id} added!")
+
     st.markdown("---")
-    st.subheader("✏️ Edit Existing Test Cases")
+    st.subheader("✏️ Edit / Delete Existing Test Case")
 
     if not test_cases.empty:
         edit_id = st.selectbox("Select Test Case ID", test_cases["Test Case ID"])
@@ -111,12 +113,20 @@ elif menu == "Edit Test Cases":
         new_steps = st.text_area("Steps", row["Steps"])
         new_expected = st.text_area("Expected Result", row["Expected Result"])
 
-        if st.button("Save Changes"):
-            test_cases.loc[test_cases["Test Case ID"] == edit_id, ["Task", "Steps", "Expected Result"]] = [new_task, new_steps, new_expected]
-            test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
-            st.success("Changes saved!")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("💾 Save Changes"):
+                test_cases.loc[test_cases["Test Case ID"] == edit_id, ["Task", "Steps", "Expected Result"]] = [new_task, new_steps, new_expected]
+                test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
+                st.success("Changes saved!")
+
+        with col2:
+            if st.button("🗑️ Delete Test Case"):
+                test_cases = test_cases[test_cases["Test Case ID"] != edit_id]
+                test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
+                st.success(f"Test case {edit_id} deleted.")
     else:
-        st.info("No test cases found.")
+        st.info("No test cases available.")
 
 # ---------- Progress Dashboard ----------
 elif menu == "Progress Dashboard":
@@ -126,9 +136,9 @@ elif menu == "Progress Dashboard":
     today_tests = progress[progress["Date"].dt.date == today]
     weekly_tests = progress[progress["Date"] >= pd.to_datetime(today - datetime.timedelta(days=7))]
 
-    st.metric("Tested Today", len(today_tests))
-    st.metric("Tested This Week", len(weekly_tests))
-    st.metric("Total Tests Logged", len(progress))
+    st.metric("✅ Tested Today", len(today_tests))
+    st.metric("📅 This Week", len(weekly_tests))
+    st.metric("🧾 Total Logs", len(progress))
 
     tested_cases = progress["Test Case ID"].nunique()
     total_cases = test_cases["Test Case ID"].nunique()
