@@ -42,7 +42,7 @@ progress = st.session_state.progress
 st.sidebar.title("🧪 Test Case Tracker")
 menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report"])
 st.sidebar.markdown("---")
-user = st.sidebar.text_input("Tester Name", value="Tester")
+user = st.sidebar.text_input("Tester Name", value="Tester", key="tester_name")
 
 # ---------- Helper Functions ----------
 def generate_next_id():
@@ -59,9 +59,24 @@ def save_test_cases():
 def save_progress():
     progress.to_csv(PROGRESS_FILE, index=False)
 
+# ---------- Function to clear run test inputs from session state ----------
+def clear_run_tests_state():
+    keys_to_clear = []
+    for key in st.session_state.keys():
+        # Clear keys related to test runs: tested checkboxes, remarks, images, submission flags
+        if key.endswith("_tested") or key.endswith("_remark") or key.endswith("_img") or key.endswith("_submitted"):
+            keys_to_clear.append(key)
+    for key in keys_to_clear:
+        del st.session_state[key]
+
 # ---------- Run Tests ----------
 if menu == "Run Tests":
     st.title("✅ Run Test Cases")
+
+    # Refresh button to clear session state related to Run Tests inputs only
+    if st.button("🔄 Refresh Test Inputs (Clear current selections)"):
+        clear_run_tests_state()
+        st.experimental_rerun()
 
     view_mode = st.radio("Choose view mode:", ["Expanded View", "Table View"], horizontal=True)
 
@@ -93,6 +108,7 @@ if menu == "Run Tests":
                 remark = st.text_area("Remarks", key=f"{row['Test Case ID']}_remark")
                 remark_img = st.file_uploader("Attach image with remark (optional)", type=["png", "jpg", "jpeg"], key=f"{row['Test Case ID']}_img")
 
+                # If marked tested and not yet submitted, log progress
                 if tested and not st.session_state.get(f"{test_key}_submitted", False):
                     remark_img_filename = ""
                     if remark_img:
@@ -188,15 +204,15 @@ elif menu == "Progress Dashboard":
     st.title("📊 Progress Dashboard")
 
     if progress.empty:
-        st.info("No progress data.")
+        st.info("No progress data available.")
     else:
         today = datetime.date.today()
         today_tests = progress[progress["Date"].dt.date == today]
         week_tests = progress[progress["Date"] >= pd.to_datetime(today - datetime.timedelta(days=7))]
 
         st.metric("Tested Today", len(today_tests))
-        st.metric("This Week", len(week_tests))
-        st.metric("Total Logs", len(progress))
+        st.metric("Tested This Week", len(week_tests))
+        st.metric("Total Tests Logged", len(progress))
 
         tested = progress["Test Case ID"].nunique()
         total = test_cases["Test Case ID"].nunique()
