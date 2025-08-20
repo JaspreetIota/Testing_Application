@@ -84,7 +84,6 @@ if menu == "Run Tests":
                 remark_img = st.file_uploader("Attach image with remark (optional)", type=["png", "jpg", "jpeg"], key=f"{row['Test Case ID']}_img")
 
                 if tested and not st.session_state.get(f"{test_key}_submitted", False):
-                    global progress  # This MUST come before using progress
                     remark_img_filename = ""
                     if remark_img is not None:
                         safe_name = f"remark_{row['Test Case ID']}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img.name}"
@@ -123,7 +122,6 @@ elif menu == "Edit Test Cases":
         image = st.file_uploader("Attach Image (optional)", type=["png", "jpg", "jpeg"])
 
         if st.button("Add Test Case"):
-            global test_cases
             image_filename = ""
             if image:
                 safe_name = f"testcase_{new_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{image.name}"
