@@ -132,7 +132,6 @@ if menu == "Run Tests":
                         "User": user,
                         "Remark Image Filename": imgfn
                     }
-                    global progress
                     progress = pd.concat([progress, pd.DataFrame([new])], ignore_index=True)
             save_progress()
             st.success("Results submitted!")
