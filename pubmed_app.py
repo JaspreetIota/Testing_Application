@@ -4,25 +4,24 @@ import datetime
 import os
 import re
 
-# ---------- File Paths ----------
+# --- Constants and paths ---
 DATA_FILE = "test_cases.xlsx"
 BASE_DIR = "user_data"
 IMAGES_DIR = os.path.join(BASE_DIR, "images")
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 PROGRESS_DIR = os.path.join(BASE_DIR, "progress")
 
-# Create folders if not exist
-for d in [BASE_DIR, IMAGES_DIR, REPORTS_DIR, PROGRESS_DIR]:
-    os.makedirs(d, exist_ok=True)
+for folder in [BASE_DIR, IMAGES_DIR, REPORTS_DIR, PROGRESS_DIR]:
+    os.makedirs(folder, exist_ok=True)
 
-# ---------- Load Test Cases ----------
+# --- Load test cases ---
 if not os.path.exists(DATA_FILE):
     df = pd.DataFrame(columns=["Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result", "Image Filename"])
     df.to_excel(DATA_FILE, index=False, engine='openpyxl')
 
 test_cases = pd.read_excel(DATA_FILE, engine='openpyxl')
 
-# ---------- Sidebar & User Setup ----------
+# --- Sidebar: User and navigation ---
 st.sidebar.title("🧪 Test Case Tracker")
 menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report"])
 user = st.sidebar.text_input("Tester Name").strip()
@@ -31,13 +30,12 @@ if not user:
     st.warning("Please enter your Tester Name to continue.")
     st.stop()
 
-# Sanitize username for file/folder usage
 user_key = re.sub(r'\W+', '_', user.lower())
 
-# Per user progress file
+# User-specific file paths
 USER_PROGRESS_FILE = os.path.join(PROGRESS_DIR, f"progress_{user_key}.csv")
 
-# Load user progress or create empty DataFrame
+# Load or create user progress
 if os.path.exists(USER_PROGRESS_FILE):
     user_progress = pd.read_csv(USER_PROGRESS_FILE)
     if not user_progress.empty:
@@ -45,32 +43,32 @@ if os.path.exists(USER_PROGRESS_FILE):
 else:
     user_progress = pd.DataFrame(columns=["Test Case ID", "Date", "Status", "Remarks", "Remark Image Filename"])
 
-# ---------- Session State keys per user ----------
-def session_key(k):
-    return f"{k}_{user_key}"
+# --- Session State management for Run Tests ---
+def get_session_key(key):
+    return f"{key}_{user_key}"
 
-if session_key("tested") not in st.session_state:
-    st.session_state[session_key("tested")] = {}
-if session_key("remarks") not in st.session_state:
-    st.session_state[session_key("remarks")] = {}
-if session_key("remark_images") not in st.session_state:
-    st.session_state[session_key("remark_images")] = {}
+if get_session_key("tested") not in st.session_state:
+    st.session_state[get_session_key("tested")] = {}
+if get_session_key("remarks") not in st.session_state:
+    st.session_state[get_session_key("remarks")] = {}
+if get_session_key("remark_images") not in st.session_state:
+    st.session_state[get_session_key("remark_images")] = {}
 
-tested = st.session_state[session_key("tested")]
-remarks = st.session_state[session_key("remarks")]
-remark_images = st.session_state[session_key("remark_images")]
+tested = st.session_state[get_session_key("tested")]
+remarks = st.session_state[get_session_key("remarks")]
+remark_images = st.session_state[get_session_key("remark_images")]
 
-# ---------- Helpers ----------
+# --- Helpers ---
 def save_test_cases(df):
     df.to_excel(DATA_FILE, index=False, engine='openpyxl')
 
 def save_user_progress(df):
     df.to_csv(USER_PROGRESS_FILE, index=False)
 
-def clear_user_run_test_state():
-    st.session_state[session_key("tested")] = {}
-    st.session_state[session_key("remarks")] = {}
-    st.session_state[session_key("remark_images")] = {}
+def clear_run_test_state():
+    st.session_state[get_session_key("tested")] = {}
+    st.session_state[get_session_key("remarks")] = {}
+    st.session_state[get_session_key("remark_images")] = {}
 
 def generate_next_id():
     if test_cases.empty:
@@ -80,13 +78,12 @@ def generate_next_id():
     next_num = max(nums) + 1 if nums else 1
     return f"TC{next_num:03d}"
 
-# ---------- Main Pages ----------
-
+# --- Run Tests Page ---
 if menu == "Run Tests":
     st.title(f"✅ Run Test Cases - User: {user}")
 
     if st.button("🔄 Refresh Inputs (Clear)"):
-        clear_user_run_test_state()
+        clear_run_test_state()
         st.experimental_rerun()
 
     for idx, row in test_cases.iterrows():
@@ -102,13 +99,13 @@ if menu == "Run Tests":
                 if os.path.exists(img_path):
                     st.image(img_path, caption="Attached Image", use_column_width=True)
 
-            checked = st.checkbox("Mark as Tested", key=session_key(f"tested_{tc_id}"), value=tested.get(tc_id, False))
+            checked = st.checkbox("Mark as Tested", key=get_session_key(f"tested_{tc_id}"), value=tested.get(tc_id, False))
             tested[tc_id] = checked
 
-            remark_text = st.text_area("Remarks", key=session_key(f"remark_{tc_id}"), value=remarks.get(tc_id, ""))
+            remark_text = st.text_area("Remarks", key=get_session_key(f"remark_{tc_id}"), value=remarks.get(tc_id, ""))
             remarks[tc_id] = remark_text
 
-            uploaded_img = st.file_uploader("Attach image with remark (optional)", type=["png", "jpg", "jpeg"], key=session_key(f"remark_img_{tc_id}"))
+            uploaded_img = st.file_uploader("Attach image with remark (optional)", type=["png", "jpg", "jpeg"], key=get_session_key(f"remark_img_{tc_id}"))
             if uploaded_img is not None:
                 remark_images[tc_id] = uploaded_img
             else:
@@ -116,7 +113,7 @@ if menu == "Run Tests":
                     remark_images[tc_id] = None
 
     if st.button("💾 Save Test Progress"):
-        any_saved = False
+        saved_any = False
         today = datetime.date.today()
 
         for tc_id, is_tested in tested.items():
@@ -131,10 +128,8 @@ if menu == "Run Tests":
                         f.write(remark_img_file.getbuffer())
                     remark_img_filename = safe_name
 
-                # Check if already exists for this TC today
-                exists = ((user_progress["Test Case ID"] == tc_id) & (user_progress["Date"].dt.date == today)).any() if not user_progress.empty else False
-
-                if not exists:
+                # Check if progress already exists for this test case today
+                if not ((user_progress["Test Case ID"] == tc_id) & (user_progress["Date"].dt.date == today)).any():
                     new_entry = {
                         "Test Case ID": tc_id,
                         "Date": today,
@@ -143,14 +138,15 @@ if menu == "Run Tests":
                         "Remark Image Filename": remark_img_filename
                     }
                     user_progress = pd.concat([user_progress, pd.DataFrame([new_entry])], ignore_index=True)
-                    any_saved = True
+                    saved_any = True
 
-        if any_saved:
+        if saved_any:
             save_user_progress(user_progress)
             st.success("Test progress saved!")
         else:
             st.info("No new test progress to save.")
 
+# --- Edit Test Cases Page ---
 elif menu == "Edit Test Cases":
     st.title("📝 Edit / Add Test Cases")
 
@@ -181,11 +177,11 @@ elif menu == "Edit Test Cases":
                 "Expected Result": expected,
                 "Image Filename": image_filename
             }
-            global test_cases
             test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
             save_test_cases(test_cases)
             st.success("Test case added!")
 
+# --- Progress Dashboard Page ---
 elif menu == "Progress Dashboard":
     st.title(f"📊 Progress Dashboard - User: {user}")
 
@@ -207,6 +203,7 @@ elif menu == "Progress Dashboard":
         st.subheader("🗂️ Your Test Case History")
         st.dataframe(user_progress.sort_values(by="Date", ascending=False))
 
+# --- Download Report Page ---
 elif menu == "Download Report":
     st.title(f"📄 Generate & Download Report - User: {user}")
 
