@@ -1,403 +1,143 @@
 import streamlit as st
-from Bio import Entrez
 import pandas as pd
-import re
-from time import sleep
-from io import BytesIO
-import logging
-import feedparser
-import urllib.parse
-from zipfile import ZipFile
+import datetime
+import os
 
-# ---------- CONFIG ----------
-Entrez.email = "your_email@example.com"  # Replace with your actual email
-logging.basicConfig(level=logging.INFO)
+# ---------- File Paths ----------
+DATA_FILE = "test_cases.csv"
+PROGRESS_FILE = "progress.csv"
+REPORTS_DIR = "reports"
 
-# ---------- CONSTANTS ----------
-PERSONAL_EMAIL_DOMAINS = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com']
-BATCH_SIZE = 100
+# ---------- Ensure required files exist ----------
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
-# ---------- FUNCTIONS ----------
-def extract_email(text):
-    match = re.search(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", text)
-    return match.group(0).rstrip('.') if match else ""
+if not os.path.exists(DATA_FILE):
+    df = pd.DataFrame(columns=["Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result"])
+    df.to_csv(DATA_FILE, index=False)
 
-def extract_university_name(affiliation_text):
-    keywords = ['university', 'institute', 'college', 'school', 'center', 'centre', 'hospital']
-    parts = [p.strip() for p in re.split(r'[;,]', affiliation_text.lower()) if p.strip()]
-    matches = [p.title() for p in parts if any(k in p for k in keywords)]
-    return matches[-1] if matches else ""
+if not os.path.exists(PROGRESS_FILE):
+    progress_df = pd.DataFrame(columns=["Test Case ID", "Date", "Status", "Remarks", "User"])
+    progress_df.to_csv(PROGRESS_FILE, index=False)
 
-def format_mla(authors, title, journal, volume, issue, year, pages, doi):
-    author_str = ", ".join(authors)
-    return f"{author_str}. \"{title}.\" *{journal}*, vol. {volume}, no. {issue}, {year}, pp. {pages}. doi:{doi}"
+# ---------- Load Data ----------
+test_cases = pd.read_csv(DATA_FILE)
+progress = pd.read_csv(PROGRESS_FILE)
 
-def extract_doi(elocations):
-    if isinstance(elocations, dict):
-        elocations = [elocations]
-    elif not isinstance(elocations, list):
-        elocations = [elocations]
-    for eloc in elocations:
-        try:
-            if hasattr(eloc, 'attributes') and eloc.attributes.get("EIdType") == "doi":
-                return str(eloc)
-        except Exception:
-            continue
-    return "N/A"
+# ---------- Sidebar ----------
+st.sidebar.title("🧪 Test Case Tracker")
+menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report"])
 
-def get_google_news(query, max_articles=5):
-    encoded_query = urllib.parse.quote(query)
-    url = f'https://news.google.com/rss/search?q={encoded_query}'
-    feed = feedparser.parse(url)
-    news = []
+st.sidebar.markdown("---")
+user = st.sidebar.text_input("Tester Name", value="Tester")
 
-    if not feed.entries:
-        return []
+# ---------- Run Tests ----------
+if menu == "Run Tests":
+    st.title("✅ Run Test Cases")
 
-    for entry in feed.entries[:max_articles]:
-        news.append({
-            'title': entry.title,
-            'link': entry.link,
-            'published': entry.published
-        })
-    return news
+    for index, row in test_cases.iterrows():
+        st.subheader(f"{row['Test Case ID']} - {row['Task']}")
+        st.write(f"**Module**: {row['Module']}")
+        st.write(f"**Steps**: {row['Steps']}")
+        st.write(f"**Expected Result**: {row['Expected Result']}")
 
-# ---------- STREAMLIT UI ----------
-st.set_page_config(page_title="IOTA Tools", layout="wide")
+        key = f"{row['Test Case ID']}_tested"
+        tested = st.checkbox("Mark as Tested", key=key)
 
-menu = st.sidebar.selectbox("🔍 Select Tool", [
-    "PubMed Article Extractor",
-    "Google News Search",
-    "Excel Splitter",
-    "Yahoo Finance Company Lookup",
-    "Excel Merger-Flatten Viewer"  # New Feature
-])
+        remark_key = f"{row['Test Case ID']}_remark"
+        remark = st.text_area("Add remark (optional)", key=remark_key)
 
+        if tested:
+            new_entry = {
+                "Test Case ID": row["Test Case ID"],
+                "Date": datetime.date.today(),
+                "Status": "Tested",
+                "Remarks": remark,
+                "User": user
+            }
+            progress = progress.append(new_entry, ignore_index=True)
+            progress.to_csv(PROGRESS_FILE, index=False)
+            st.success(f"{row['Test Case ID']} marked as tested!")
 
-# ==========================
-# 🚀 PubMed Article Extractor
-# ==========================
-if menu == "PubMed Article Extractor":
-    st.title("🔬 Auto Author/Article Extractor")
+# ---------- Edit Test Cases ----------
+elif menu == "Edit Test Cases":
+    st.title("📝 Edit / Add Test Cases")
 
-    search_term = st.text_input(
-        "Enter your PubMed search term",
-        '(Human Biology) AND ("united states"[Affiliation] OR USA[Affiliation]) AND (2022[Date - Publication])'
-    )
+    with st.expander("➕ Add New Test Case"):
+        new_id = st.text_input("Test Case ID")
+        page = st.text_input("Page/Field")
+        module = st.text_input("Module")
+        task = st.text_input("Task")
+        steps = st.text_area("Steps")
+        expected = st.text_area("Expected Result")
 
-    selected_countries = st.multiselect(
-        "🌍 Select Countries (match in affiliation text)",
-        options=[
-            "USA", "United States", "United Kingdom", "Germany", "India", "Canada", "Australia",
-            "France", "China", "Japan", "Brazil", "Italy", "Spain", "Netherlands", "Switzerland"
-        ],
-        default=["USA", "United States"]
-    )
+        if st.button("Add Test Case"):
+            new_row = {
+                "Test Case ID": new_id,
+                "Page/Field": page,
+                "Module": module,
+                "Task": task,
+                "Steps": steps,
+                "Expected Result": expected
+            }
+            test_cases = test_cases.append(new_row, ignore_index=True)
+            test_cases.to_csv(DATA_FILE, index=False)
+            st.success("Test case added!")
 
-    retstart = st.number_input("Start from record number", min_value=0, value=0, step=100)
-    retmax = st.number_input("How many records to fetch", min_value=10, max_value=10000, value=100, step=10)
+    st.markdown("---")
+    st.subheader("✏️ Edit Existing Test Cases")
+    edit_id = st.selectbox("Select Test Case ID", test_cases["Test Case ID"])
 
-    start_button = st.button("Fetch Articles")
+    if edit_id:
+        row = test_cases[test_cases["Test Case ID"] == edit_id].iloc[0]
+        new_task = st.text_input("Task", row["Task"])
+        new_steps = st.text_area("Steps", row["Steps"])
+        new_expected = st.text_area("Expected Result", row["Expected Result"])
 
-    if not selected_countries:
-        st.warning("⚠️ Please select at least one country to proceed.")
+        if st.button("Save Changes"):
+            test_cases.loc[test_cases["Test Case ID"] == edit_id, ["Task", "Steps", "Expected Result"]] = [new_task, new_steps, new_expected]
+            test_cases.to_csv(DATA_FILE, index=False)
+            st.success("Changes saved!")
 
-    if start_button and selected_countries:
-        st.info(f"🔎 Searching PubMed (records {retstart} to {retstart + retmax - 1})...")
-        try:
-            search_handle = Entrez.esearch(
-                db="pubmed",
-                term=search_term,
-                retstart=retstart,
-                retmax=retmax
-            )
-            search_results = Entrez.read(search_handle)
-        except Exception as e:
-            st.error(f"❌ Failed to search PubMed: {e}")
-            st.stop()
+# ---------- Progress Dashboard ----------
+elif menu == "Progress Dashboard":
+    st.title("📊 Progress Dashboard")
 
-        pmids = search_results.get("IdList", [])
-        if not pmids:
-            st.error("No articles found for the given query and range.")
-            st.stop()
+    today = datetime.date.today()
+    today_tests = progress[progress["Date"] == pd.to_datetime(today)]
+    weekly_tests = progress[progress["Date"] >= pd.to_datetime(today - datetime.timedelta(days=7))]
 
-        data = []
-        progress = st.progress(0)
+    st.metric("Tested Today", len(today_tests))
+    st.metric("Tested This Week", len(weekly_tests))
+    st.metric("Total Tests Logged", len(progress))
 
-        for i, start in enumerate(range(0, len(pmids), BATCH_SIZE)):
-            end = min(start + BATCH_SIZE, len(pmids))
-            batch_pmids = pmids[start:end]
+    tested_cases = progress["Test Case ID"].nunique()
+    total_cases = test_cases["Test Case ID"].nunique()
+    st.progress(tested_cases / total_cases if total_cases else 0)
 
-            try:
-                fetch_handle = Entrez.efetch(db="pubmed", id=batch_pmids, rettype="xml")
-                articles = Entrez.read(fetch_handle)
-            except Exception as e:
-                st.error(f"❌ Failed to fetch batch {start}-{end}: {e}")
-                logging.exception("Fetch error")
-                continue
+    st.subheader("🗂️ Test Case History")
+    st.dataframe(progress.sort_values(by="Date", ascending=False))
 
-            for article in articles['PubmedArticle']:
-                try:
-                    pmid = str(article['MedlineCitation']['PMID'])
-                    article_data = article['MedlineCitation']['Article']
-                    title = article_data.get("ArticleTitle", "No Title")
-                    journal = article_data["Journal"]["Title"]
-                    volume = article_data["Journal"]["JournalIssue"].get("Volume", "N/A")
-                    issue = article_data["Journal"]["JournalIssue"].get("Issue", "N/A")
-                    year = article_data["Journal"]["JournalIssue"]["PubDate"].get("Year", "N/A")
-                    pages = article_data.get("Pagination", {}).get("MedlinePgn", "N/A")
+# ---------- Download Report ----------
+elif menu == "Download Report":
+    st.title("📄 Generate & Download Report")
 
-                    doi = extract_doi(article_data.get("ELocationID", []))
+    user_progress = progress if user.strip() == "" else progress[progress["User"] == user]
 
-                    for author in article_data.get("AuthorList", []):
-                        if "ForeName" in author and "LastName" in author:
-                            full_name = f"{author['LastName']}, {author['ForeName']}"
+    if user_progress.empty:
+        st.info("No test progress found.")
+    else:
+        report_date = datetime.date.today().strftime("%Y%m%d")
+        filename = f"{REPORTS_DIR}/report_{user}_{report_date}.csv"
 
-                            for aff in author.get("AffiliationInfo", []):
-                                aff_text = aff.get("Affiliation", "")
-                                email = extract_email(aff_text)
-                                if not email or any(email.lower().endswith(f"@{domain}") for domain in PERSONAL_EMAIL_DOMAINS):
-                                    continue
+        user_progress.to_csv(filename, index=False)
 
-                                matched_country = next(
-                                    (country for country in selected_countries
-                                     if re.search(rf'\b{re.escape(country)}\b', aff_text, re.IGNORECASE)),
-                                    None
-                                )
-                                if not matched_country:
-                                    continue
+        st.success(f"Report generated for {user}")
+        st.dataframe(user_progress)
 
-                                university = extract_university_name(aff_text)
-                                if not university:
-                                    continue
-
-                                mla = format_mla([full_name], title, journal, volume, issue, year, pages, doi)
-
-                                data.append({
-                                    "PMID": pmid,
-                                    "Author": full_name,
-                                    "Email": email,
-                                    "Country": matched_country,
-                                    "University": university,
-                                    "Affiliation": aff_text,
-                                    "MLA Citation": mla
-                                })
-                                break
-                except Exception as e:
-                    logging.exception("Article processing error")
-                    st.warning(f"⚠️ Skipped an article due to error: {e}")
-                    continue
-
-            sleep(0.5)
-            progress.progress((i + 1) / ((len(pmids) - 1) // BATCH_SIZE + 1))
-
-        if data:
-            df = pd.DataFrame(data)
-            st.success(f"✅ Completed! {len(data)} valid entries extracted.")
-            st.dataframe(df)
-
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df.to_excel(writer, index=False, sheet_name="Results")
-            output.seek(0)
-
+        with open(filename, "rb") as file:
             st.download_button(
-                label="📁 Download Excel",
-                data=output,
-                file_name="pubmed_results.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                label="📥 Download Report",
+                data=file,
+                file_name=os.path.basename(filename),
+                mime="text/csv"
             )
-        else:
-            st.error("❌ No valid data extracted. Try refining your search.")
-
-# =====================
-# 📰 Google News Search
-# =====================
-elif menu == "Google News Search":
-    st.title("📰 Google News Article Finder")
-
-    query = st.text_input("Enter a topic, company, or keyword", "BYD Auto")
-    max_articles = st.slider("Number of articles to display", 1, 20, 5)
-
-    if st.button("Search News"):
-        with st.spinner("Fetching news..."):
-            news_results = get_google_news(query, max_articles=max_articles)
-
-        if news_results:
-            st.success(f"✅ Found {len(news_results)} articles.")
-            for i, article in enumerate(news_results, 1):
-                st.markdown(f"**{i}. [{article['title']}]({article['link']})**")
-                st.markdown(f"*Published:* {article['published']}\n")
-        else:
-            st.warning("⚠️ No news articles found or feed could not be loaded.")
-
-# =====================
-# 📂 Excel Splitter
-# =====================
-elif menu == "Excel Splitter":
-    st.title("📂 Excel Splitter - Split Large Excel File into Smaller Files")
-
-    uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
-
-    entries_per_file = st.number_input(
-        "Number of entries per file",
-        min_value=100, max_value=10000, value=1500, step=100
-    )
-
-    if uploaded_file:
-        df = pd.read_excel(uploaded_file)
-        total_rows = len(df)
-        st.info(f"✅ Uploaded file has **{total_rows}** rows.")
-
-        if st.button("🔨 Split Excel File"):
-            with st.spinner("Splitting file..."):
-                zip_buffer = BytesIO()
-                with ZipFile(zip_buffer, "w") as zip_file:
-                    num_files = (len(df) // entries_per_file) + (1 if len(df) % entries_per_file != 0 else 0)
-
-                    for i in range(num_files):
-                        start_row = i * entries_per_file
-                        end_row = (i + 1) * entries_per_file
-                        df_subset = df[start_row:end_row]
-
-                        file_buffer = BytesIO()
-                        df_subset.to_excel(file_buffer, index=False)
-                        file_buffer.seek(0)
-
-                        zip_file.writestr(f'split_part_{i + 1}.xlsx', file_buffer.read())
-
-                zip_buffer.seek(0)
-
-                st.download_button(
-                    label="📦 Download ZIP of Split Files",
-                    data=zip_buffer,
-                    file_name="split_excel_files.zip",
-                    mime="application/zip"
-                )
-# ===============================
-# 🔎 Yahoo Finance Company Lookup
-# ===============================
-elif menu == "Yahoo Finance Company Lookup":
-    st.title("🔎 Yahoo Finance Company Lookup")
-
-    try:
-        from yahooquery import search, Ticker
-    except ImportError:
-        st.error("❌ yahooquery is not installed. Please install it using `pip install yahooquery`")
-        st.stop()
-
-    def search_company_yahoo(name, limit=3):
-        try:
-            results = search(name)
-            if not results or "quotes" not in results:
-                return []
-            companies = []
-            for item in results['quotes']:
-                if 'symbol' in item and 'shortname' in item:
-                    companies.append({
-                        "symbol": item['symbol'],
-                        "name": item.get('shortname'),
-                        "exchange": item.get('exchDisp'),
-                        "type": item.get('typeDisp')
-                    })
-                    if len(companies) >= limit:
-                        break
-            return companies
-        except Exception as e:
-            return {"error": str(e)}
-
-    def get_company_info(symbol):
-        try:
-            ticker = Ticker(symbol)
-            profile = ticker.asset_profile
-            info = profile.get(symbol, {})
-            return info
-        except Exception as e:
-            return {"error": str(e)}
-
-    st.markdown("Search for a company and fetch detailed metadata from Yahoo Finance.")
-    company_input = st.text_input("Enter Company Name", value="Apple")
-
-    if st.button("Search Company"):
-        if not company_input.strip():
-            st.warning("Please enter a company name.")
-            st.stop()
-
-        with st.spinner("Searching Yahoo Finance..."):
-            matches = search_company_yahoo(company_input)
-
-        if isinstance(matches, dict) and "error" in matches:
-            st.error(f"Error: {matches['error']}")
-        elif not matches:
-            st.warning("No matches found.")
-        else:
-            st.success(f"Found {len(matches)} match(es). Showing top result.")
-
-            top_match = matches[0]
-            st.markdown(f"**Top Match:** `{top_match['name']}`")
-            st.markdown(f"- **Symbol:** {top_match['symbol']}")
-            st.markdown(f"- **Exchange:** {top_match['exchange']}")
-            st.markdown(f"- **Type:** {top_match['type']}")
-
-            with st.spinner("Fetching company details..."):
-                details = get_company_info(top_match['symbol'])
-
-            if isinstance(details, dict) and "error" in details:
-                st.error(f"Error: {details['error']}")
-            elif details:
-                st.subheader("📊 Company Details")
-                for key, value in details.items():
-                    st.markdown(f"- **{key}:** {value}")
-            else:
-                st.warning("No detailed data available for this symbol.")
-# ===============================
-# 🧾 Excel Merger-Flatten Viewer
-# ===============================
-elif menu == "Excel Merger-Flatten Viewer":
-    st.title("🧾 Flatten Excel with Merged Cells")
-
-    uploaded_file = st.file_uploader("Upload an Excel file with merged cells", type=["xlsx"])
-
-    if uploaded_file:
-        from openpyxl import load_workbook
-
-        with st.spinner("Processing..."):
-            wb = load_workbook(uploaded_file)
-            ws = wb.active
-
-            # Step 1: Read values into 2D list
-            data = [[cell.value for cell in row] for row in ws.iter_rows()]
-
-            # Step 2: Fill in merged cell ranges
-            for merged_range in ws.merged_cells.ranges:
-                min_row, min_col, max_row, max_col = (
-                    merged_range.min_row,
-                    merged_range.min_col,
-                    merged_range.max_row,
-                    merged_range.max_col
-                )
-                top_left_value = ws.cell(row=min_row, column=min_col).value
-
-                for row in range(min_row - 1, max_row):
-                    for col in range(min_col - 1, max_col):
-                        if row != min_row - 1 or col != min_col - 1:
-                            data[row][col] = top_left_value
-
-            # Step 3: Convert to DataFrame and display
-            df = pd.DataFrame(data)
-            st.success("✅ File processed. Here's a preview:")
-            st.dataframe(df)
-
-            # Step 4: Download cleaned Excel
-            output_buffer = BytesIO()
-            df.to_excel(output_buffer, index=False, header=False)
-            output_buffer.seek(0)
-
-            st.download_button(
-                label="📥 Download Flattened Excel",
-                data=output_buffer,
-                file_name="flattened_output.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-
