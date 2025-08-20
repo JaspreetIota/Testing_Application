@@ -67,18 +67,17 @@ elif menu == "Edit Test Cases":
     
     with st.expander("➕ Add New Test Case"):
         def generate_next_id():
-        if test_cases.empty:
-            return "TC001"
-        else:
-            ids = test_cases["Test Case ID"].dropna().tolist()
-            numbers = []
-            for id_ in ids:
-                digits = ''.join(filter(str.isdigit, id_))
-                if digits.isdigit():
-                    numbers.append(int(digits))
-            next_num = max(numbers) + 1 if numbers else 1
-            return f"TC{next_num:03d}"
-
+            if test_cases.empty:
+                return "TC001"
+            else:
+                ids = test_cases["Test Case ID"].dropna().tolist()
+                numbers = []
+                for id_ in ids:
+                    digits = ''.join(filter(str.isdigit, id_))
+                    if digits.isdigit():
+                        numbers.append(int(digits))
+                        next_num = max(numbers) + 1 if numbers else 1
+                        return f"TC{next_num:03d}"
     new_id = generate_next_id()
     st.text_input("Test Case ID", value=new_id, disabled=True)
 
@@ -100,7 +99,7 @@ elif menu == "Edit Test Cases":
         test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
         test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
         st.success(f"Test case {new_id} added!")
-
+        
     st.markdown("---")
     st.subheader("✏️ Edit Existing Test Cases")
 
