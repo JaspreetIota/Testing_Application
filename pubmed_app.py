@@ -25,10 +25,9 @@ if not os.path.exists(PROGRESS_FILE):
 
 # ---------- Load Data ----------
 test_cases = pd.read_excel(DATA_FILE, engine='openpyxl')
-
 progress = pd.read_csv(PROGRESS_FILE)
-# Convert Date column to datetime if it exists and not empty
-if "Date" in progress.columns:
+# Ensure Date is datetime dtype
+if not progress.empty:
     progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')
 
 # ---------- Sidebar ----------
@@ -38,7 +37,7 @@ menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress
 st.sidebar.markdown("---")
 user = st.sidebar.text_input("Tester Name", value="Tester")
 
-# ---------- Helper: Generate Next Test Case ID ----------
+# ---------- Functions ----------
 def generate_next_id():
     if test_cases.empty:
         return "TC001"
@@ -52,46 +51,52 @@ def generate_next_id():
         next_num = max(numbers) + 1 if numbers else 1
         return f"TC{next_num:03d}"
 
+def save_test_cases(df):
+    df.to_excel(DATA_FILE, index=False, engine='openpyxl')
+
+def save_progress(df):
+    df.to_csv(PROGRESS_FILE, index=False)
+
 # ---------- Run Tests ----------
 if menu == "Run Tests":
     st.title("✅ Run Test Cases")
-    
-    # Allow user to switch view mode: expanded or table
-    view_mode = st.radio("View Mode", ["Expanded View", "Table View"], horizontal=True)
-    
+
+    view_mode = st.radio("Choose view mode:", ["Expanded View", "Table View"], horizontal=True)
+
     if view_mode == "Expanded View":
-        # Button to expand/collapse all test cases
-        if "all_expanded" not in st.session_state:
-            st.session_state.all_expanded = True
-        
-        expand_collapse = st.button("Toggle Expand/Collapse All")
-        if expand_collapse:
-            st.session_state.all_expanded = not st.session_state.all_expanded
-        
-        for idx, row in test_cases.iterrows():
-            with st.expander(f"{row['Test Case ID']} - {row['Task']}", expanded=st.session_state.all_expanded):
-                st.markdown(f"**Module**: {row['Module']}")
-                st.markdown(f"**Page/Field**: {row['Page/Field']}")
-                st.markdown(f"**Steps**:\n{row['Steps']}")
-                st.markdown(f"**Expected Result**:\n{row['Expected Result']}")
-                
-                # Show test case image if exists
-                img_file = row.get("Image Filename")
-                if pd.notna(img_file) and os.path.exists(os.path.join(IMAGES_DIR, img_file)):
-                    st.image(os.path.join(IMAGES_DIR, img_file), caption="Test Case Image", use_column_width=True)
-                
-                # Checkbox to mark tested
+        if 'expanded_state' not in st.session_state:
+            st.session_state.expanded_state = True
+        col1, col2 = st.columns([1,1])
+        with col1:
+            if st.button("Expand All"):
+                st.session_state.expanded_state = True
+        with col2:
+            if st.button("Collapse All"):
+                st.session_state.expanded_state = False
+
+        for index, row in test_cases.iterrows():
+            with st.expander(f"{row['Test Case ID']} - {row['Task']}", expanded=st.session_state.expanded_state):
+                st.write(f"**Module:** {row['Module']}")
+                st.write(f"**Page/Field:** {row['Page/Field']}")
+                st.write(f"**Steps:** {row['Steps']}")
+                st.write(f"**Expected Result:** {row['Expected Result']}")
+                if pd.notna(row.get("Image Filename", None)) and row["Image Filename"]:
+                    img_path = os.path.join(IMAGES_DIR, row["Image Filename"])
+                    if os.path.exists(img_path):
+                        st.image(img_path, caption="Test Case Image", use_column_width=True)
+
                 key = f"{row['Test Case ID']}_tested"
                 tested = st.checkbox("Mark as Tested", key=key)
 
-                # Remark input and image upload for remarks
                 remark_key = f"{row['Test Case ID']}_remark"
                 remark = st.text_area("Add remark (optional)", key=remark_key)
 
+                # Allow uploading image with remark
                 remark_img_key = f"{row['Test Case ID']}_remark_img"
-                remark_img = st.file_uploader("Upload Remark Image (optional)", type=["png", "jpg", "jpeg"], key=remark_img_key)
+                remark_img = st.file_uploader("Attach image with remark (optional)", type=["png","jpg","jpeg"], key=remark_img_key)
 
                 if tested and not st.session_state.get(f"{key}_submitted", False):
+                    global progress
                     # Save remark image if uploaded
                     remark_img_filename = ""
                     if remark_img is not None:
@@ -109,28 +114,30 @@ if menu == "Run Tests":
                         "User": user,
                         "Remark Image Filename": remark_img_filename
                     }
-                    global progress
                     progress = pd.concat([progress, pd.DataFrame([new_entry])], ignore_index=True)
-                    progress.to_csv(PROGRESS_FILE, index=False)
+                    save_progress(progress)
                     st.success(f"{row['Test Case ID']} marked as tested!")
                     st.session_state[f"{key}_submitted"] = True
 
-    else:  # Table View
-        st.subheader("Test Cases Table")
-        # Add a column for "Mark as Tested" checkbox and remarks inputs
-        # For table view, show as editable dataframe or use form per row (limited in Streamlit)
-        
-        # We'll create a simple table with current progress status
-        merged = pd.merge(test_cases, progress.groupby("Test Case ID").last().reset_index()[["Test Case ID", "Status", "Remarks", "User"]], on="Test Case ID", how="left")
-        merged = merged.fillna({"Status": "Not Tested", "Remarks": "", "User": ""})
-        st.dataframe(merged[["Test Case ID", "Page/Field", "Module", "Task", "Status", "User", "Remarks"]])
+    else:  # Table view
+        # Prepare display dataframe
+        display_df = test_cases.copy()
+        display_df = display_df.rename(columns={
+            "Test Case ID": "ID",
+            "Page/Field": "Page/Field",
+            "Module": "Module",
+            "Task": "Task",
+            "Steps": "Steps",
+            "Expected Result": "Expected Result"
+        })
+        st.dataframe(display_df)
 
-        st.info("In table view, marking test cases as tested with remarks is not supported. Please use Expanded View to mark tests.")
+        st.info("To mark test cases as tested or add remarks, switch to Expanded View.")
 
 # ---------- Edit Test Cases ----------
 elif menu == "Edit Test Cases":
     st.title("📝 Edit / Add Test Cases")
-    
+
     with st.expander("➕ Add New Test Case"):
         new_id = generate_next_id()
         st.text_input("Test Case ID", value=new_id, disabled=True)
@@ -140,18 +147,17 @@ elif menu == "Edit Test Cases":
         task = st.text_input("Task")
         steps = st.text_area("Steps")
         expected = st.text_area("Expected Result")
-
-        # Image upload for test case
-        uploaded_img = st.file_uploader("Upload Test Case Image (optional)", type=["png", "jpg", "jpeg"])
+        image_file = st.file_uploader("Attach Image (optional)", type=["png", "jpg", "jpeg"])
 
         if st.button("Add Test Case"):
-            img_filename = ""
-            if uploaded_img is not None:
-                safe_img_name = f"tc_{new_id}_{uploaded_img.name}"
-                img_path = os.path.join(IMAGES_DIR, safe_img_name)
-                with open(img_path, "wb") as f:
-                    f.write(uploaded_img.getbuffer())
-                img_filename = safe_img_name
+            global test_cases
+            image_filename = ""
+            if image_file is not None:
+                safe_filename = f"testcase_{new_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{image_file.name}"
+                image_path = os.path.join(IMAGES_DIR, safe_filename)
+                with open(image_path, "wb") as f:
+                    f.write(image_file.getbuffer())
+                image_filename = safe_filename
 
             new_row = {
                 "Test Case ID": new_id,
@@ -160,50 +166,47 @@ elif menu == "Edit Test Cases":
                 "Task": task,
                 "Steps": steps,
                 "Expected Result": expected,
-                "Image Filename": img_filename
+                "Image Filename": image_filename
             }
-            global test_cases
             test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
-            test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
+            save_test_cases(test_cases)
             st.success(f"Test case {new_id} added!")
 
-    # Bulk upload via Excel
-    with st.expander("📁 Upload Test Cases via Excel"):
-        uploaded_file = st.file_uploader("Upload Excel file (.xlsx) with columns: Test Case ID (optional), Page/Field, Module, Task, Steps, Expected Result", type=["xlsx"])
-        if uploaded_file is not None:
-            try:
-                uploaded_df = pd.read_excel(uploaded_file, engine='openpyxl')
-                # Auto-generate IDs if missing
-                if "Test Case ID" not in uploaded_df.columns or uploaded_df["Test Case ID"].isnull().all():
-                    # Generate IDs for rows missing ID or all missing
-                    start_num = 1
-                    if not test_cases.empty:
-                        existing_ids = test_cases["Test Case ID"].dropna().tolist()
-                        existing_nums = [int(''.join(filter(str.isdigit, x))) for x in existing_ids if ''.join(filter(str.isdigit, x)).isdigit()]
-                        if existing_nums:
-                            start_num = max(existing_nums) + 1
-
-                    new_ids = []
-                    for i in range(len(uploaded_df)):
-                        new_ids.append(f"TC{start_num+i:03d}")
-                    uploaded_df["Test Case ID"] = new_ids
-
-                # Remove duplicates based on Test Case ID
-                existing_ids_set = set(test_cases["Test Case ID"].tolist())
-                uploaded_df = uploaded_df[~uploaded_df["Test Case ID"].isin(existing_ids_set)]
-
-                # Append and save
-                test_cases = pd.concat([test_cases, uploaded_df], ignore_index=True)
-                test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
-                st.success(f"Uploaded {len(uploaded_df)} new test cases!")
-            except Exception as e:
-                st.error(f"Error reading Excel file: {e}")
-
     st.markdown("---")
+
+    # Bulk upload via Excel
+    with st.expander("⬆️ Upload Test Cases via Excel"):
+        uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+        if uploaded_file:
+            try:
+                df_uploaded = pd.read_excel(uploaded_file, engine='openpyxl')
+                required_cols = ["Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result"]
+                missing_cols = [col for col in required_cols if col not in df_uploaded.columns]
+                if missing_cols:
+                    st.error(f"Uploaded file missing columns: {missing_cols}")
+                else:
+                    # Optionally handle Image Filename column if present
+                    if "Image Filename" not in df_uploaded.columns:
+                        df_uploaded["Image Filename"] = ""
+
+                    # Append new cases (avoiding duplicate IDs)
+                    existing_ids = set(test_cases["Test Case ID"].astype(str).tolist())
+                    new_cases = df_uploaded[~df_uploaded["Test Case ID"].astype(str).isin(existing_ids)]
+
+                    if not new_cases.empty:
+                        test_cases = pd.concat([test_cases, new_cases], ignore_index=True)
+                        save_test_cases(test_cases)
+                        st.success(f"Uploaded {len(new_cases)} new test cases successfully!")
+                    else:
+                        st.info("No new test cases to add (all IDs already exist).")
+            except Exception as e:
+                st.error(f"Error reading uploaded file: {e}")
+
     st.subheader("✏️ Edit / Delete Existing Test Cases")
 
     if not test_cases.empty:
         edit_id = st.selectbox("Select Test Case ID", test_cases["Test Case ID"])
+
         row = test_cases[test_cases["Test Case ID"] == edit_id].iloc[0]
 
         new_page = st.text_input("Page/Field", row["Page/Field"])
@@ -212,44 +215,31 @@ elif menu == "Edit Test Cases":
         new_steps = st.text_area("Steps", row["Steps"])
         new_expected = st.text_area("Expected Result", row["Expected Result"])
 
-        # Show existing image if available
-        if pd.notna(row.get("Image Filename")) and os.path.exists(os.path.join(IMAGES_DIR, row["Image Filename"])):
-            st.image(os.path.join(IMAGES_DIR, row["Image Filename"]), caption="Current Test Case Image", use_column_width=True)
-        # Upload new image
-        new_uploaded_img = st.file_uploader("Replace Test Case Image (optional)", type=["png", "jpg", "jpeg"])
+        # Show current image if any
+        if pd.notna(row.get("Image Filename", None)) and row["Image Filename"]:
+            img_path = os.path.join(IMAGES_DIR, row["Image Filename"])
+            if os.path.exists(img_path):
+                st.image(img_path, caption="Attached Image", use_column_width=True)
+
+        new_image_file = st.file_uploader("Replace Image (optional)", type=["png", "jpg", "jpeg"])
 
         if st.button("Save Changes"):
-            img_filename = row.get("Image Filename", "")
-            if new_uploaded_img is not None:
-                # Save new image
-                safe_img_name = f"tc_{edit_id}_{new_uploaded_img.name}"
-                img_path = os.path.join(IMAGES_DIR, safe_img_name)
-                with open(img_path, "wb") as f:
-                    f.write(new_uploaded_img.getbuffer())
-                img_filename = safe_img_name
-
-            test_cases.loc[test_cases["Test Case ID"] == edit_id, ["Page/Field", "Module", "Task", "Steps", "Expected Result", "Image Filename"]] = [new_page, new_module, new_task, new_steps, new_expected, img_filename]
-            test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
+            global test_cases
+            image_filename = row.get("Image Filename", "")
+            if new_image_file is not None:
+                safe_filename = f"testcase_{edit_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{new_image_file.name}"
+                image_path = os.path.join(IMAGES_DIR, safe_filename)
+                with open(image_path, "wb") as f:
+                    f.write(new_image_file.getbuffer())
+                image_filename = safe_filename
+            test_cases.loc[test_cases["Test Case ID"] == edit_id, ["Page/Field", "Module", "Task", "Steps", "Expected Result", "Image Filename"]] = [new_page, new_module, new_task, new_steps, new_expected, image_filename]
+            save_test_cases(test_cases)
             st.success("Changes saved!")
 
         if st.button("Delete Test Case"):
-            # Remove associated image file
-            img_filename = row.get("Image Filename")
-            if pd.notna(img_filename):
-                try:
-                    os.remove(os.path.join(IMAGES_DIR, img_filename))
-                except:
-                    pass
-
-            # Remove test case
             test_cases = test_cases[test_cases["Test Case ID"] != edit_id]
-            test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
-
-            # Remove progress entries for this test case
-            global progress
-            progress = progress[progress["Test Case ID"] != edit_id]
-            progress.to_csv(PROGRESS_FILE, index=False)
-            st.success(f"Test case {edit_id} deleted.")
+            save_test_cases(test_cases)
+            st.success(f"Test case {edit_id} deleted!")
     else:
         st.info("No test cases found.")
 
@@ -257,42 +247,44 @@ elif menu == "Edit Test Cases":
 elif menu == "Progress Dashboard":
     st.title("📊 Progress Dashboard")
 
-    today = datetime.date.today()
-    if not progress.empty and "Date" in progress.columns:
+    if progress.empty:
+        st.info("No progress data available yet.")
+    else:
+        today = datetime.date.today()
+        # Fix .dt accessor error by ensuring datetime dtype done at loading
+
         today_tests = progress[progress["Date"].dt.date == today]
         weekly_tests = progress[progress["Date"] >= pd.to_datetime(today - datetime.timedelta(days=7))]
-    else:
-        today_tests = pd.DataFrame()
-        weekly_tests = pd.DataFrame()
 
-    st.metric("Tested Today", len(today_tests))
-    st.metric("Tested This Week", len(weekly_tests))
-    st.metric("Total Tests Logged", len(progress))
+        st.metric("Tested Today", len(today_tests))
+        st.metric("Tested This Week", len(weekly_tests))
+        st.metric("Total Tests Logged", len(progress))
 
-    tested_cases = progress["Test Case ID"].nunique() if not progress.empty else 0
-    total_cases = test_cases["Test Case ID"].nunique() if not test_cases.empty else 0
+        tested_cases = progress["Test Case ID"].nunique()
+        total_cases = test_cases["Test Case ID"].nunique()
 
-    if total_cases > 0:
-        st.progress(tested_cases / total_cases)
-    else:
-        st.info("No test cases available to track progress.")
+        if total_cases > 0:
+            st.progress(tested_cases / total_cases)
+        else:
+            st.info("No test cases available to track progress.")
 
-    st.subheader("🗂️ Test Case History")
+        st.subheader("🗂️ Test Case History")
 
-    # Show images uploaded in remarks as thumbnails with link
-    def format_remarks(row):
-        text = row["Remarks"] if pd.notna(row["Remarks"]) else ""
-        img_file = row.get("Remark Image Filename", "")
-        if pd.notna(img_file) and img_file and os.path.exists(os.path.join(IMAGES_DIR, img_file)):
-            image_path = os.path.join(IMAGES_DIR, img_file)
-            # Streamlit does not support inline images in dataframe, so just mention
-            text += f"\n[Image attached: {img_file}]"
-        return text
+        def format_row(row):
+            # Show remark image if present as a link
+            remark_img = row.get("Remark Image Filename", "")
+            if remark_img and isinstance(remark_img, str):
+                path = os.path.join(IMAGES_DIR, remark_img)
+                if os.path.exists(path):
+                    return f'{row["Remarks"]}  ![image](./{path})'
+            return row["Remarks"]
 
-    progress_display = progress.copy()
-    progress_display["Remarks"] = progress_display.apply(format_remarks, axis=1)
+        # Show progress dataframe with clickable images if possible
+        display_progress = progress.copy()
+        # Convert datetime to string for display
+        display_progress["Date"] = display_progress["Date"].dt.strftime("%Y-%m-%d")
 
-    st.dataframe(progress_display.sort_values(by="Date", ascending=False))
+        st.dataframe(display_progress.sort_values(by="Date", ascending=False))
 
 # ---------- Download Report ----------
 elif menu == "Download Report":
