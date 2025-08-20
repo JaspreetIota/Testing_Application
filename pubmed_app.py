@@ -21,7 +21,7 @@ if not os.path.exists(DATA_FILE):
 
 test_cases = pd.read_excel(DATA_FILE, engine='openpyxl')
 
-# --- Sidebar: User and navigation ---
+# --- Sidebar ---
 st.sidebar.title("🧪 Test Case Tracker")
 menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report"])
 user = st.sidebar.text_input("Tester Name").strip()
@@ -41,9 +41,9 @@ if os.path.exists(USER_PROGRESS_FILE):
     if not user_progress.empty:
         user_progress["Date"] = pd.to_datetime(user_progress["Date"], errors='coerce')
 else:
-    user_progress = pd.DataFrame(columns=["Test Case ID", "Date", "Status", "Remarks", "Remark Image Filename"])
+    user_progress = pd.DataFrame(columns=["Test Case ID", "Date", "Status", "Remarks", "User", "Remark Image Filename"])
 
-# --- Session State management for Run Tests ---
+# --- Session State for Run Tests ---
 def get_session_key(key):
     return f"{key}_{user_key}"
 
@@ -53,12 +53,15 @@ if get_session_key("remarks") not in st.session_state:
     st.session_state[get_session_key("remarks")] = {}
 if get_session_key("remark_images") not in st.session_state:
     st.session_state[get_session_key("remark_images")] = {}
+if get_session_key("expanded_state") not in st.session_state:
+    st.session_state[get_session_key("expanded_state")] = True
 
 tested = st.session_state[get_session_key("tested")]
 remarks = st.session_state[get_session_key("remarks")]
 remark_images = st.session_state[get_session_key("remark_images")]
+expanded_state = st.session_state[get_session_key("expanded_state")]
 
-# --- Helpers ---
+# --- Helper functions ---
 def save_test_cases(df):
     df.to_excel(DATA_FILE, index=False, engine='openpyxl')
 
@@ -82,13 +85,19 @@ def generate_next_id():
 if menu == "Run Tests":
     st.title(f"✅ Run Test Cases - User: {user}")
 
+    col1, col2 = st.columns(2)
+    if col1.button("Expand All"):
+        st.session_state[get_session_key("expanded_state")] = True
+    if col2.button("Collapse All"):
+        st.session_state[get_session_key("expanded_state")] = False
+
     if st.button("🔄 Refresh Inputs (Clear)"):
         clear_run_test_state()
         st.experimental_rerun()
 
     for idx, row in test_cases.iterrows():
         tc_id = row["Test Case ID"]
-        with st.expander(f"{tc_id} - {row['Task']}"):
+        with st.expander(f"{tc_id} - {row['Task']}", expanded=st.session_state[get_session_key("expanded_state")]):
             st.markdown(f"**Module:** {row['Module']}")
             st.markdown(f"**Page/Field:** {row['Page/Field']}")
             st.markdown(f"**Steps:** {row['Steps']}")
@@ -128,17 +137,27 @@ if menu == "Run Tests":
                         f.write(remark_img_file.getbuffer())
                     remark_img_filename = safe_name
 
-                # Check if progress already exists for this test case today
-                if not ((user_progress["Test Case ID"] == tc_id) & (user_progress["Date"].dt.date == today)).any():
-                    new_entry = {
-                        "Test Case ID": tc_id,
-                        "Date": today,
-                        "Status": "Tested",
-                        "Remarks": remark,
-                        "Remark Image Filename": remark_img_filename
-                    }
-                    user_progress = pd.concat([user_progress, pd.DataFrame([new_entry])], ignore_index=True)
-                    saved_any = True
+                # Check if already exists for this test case and date, if yes update else append
+                existing_idx = user_progress[(user_progress["Test Case ID"] == tc_id) & (user_progress["Date"].dt.date == today)].index
+
+                new_entry = {
+                    "Test Case ID": tc_id,
+                    "Date": today,
+                    "Status": "Tested",
+                    "Remarks": remark,
+                    "User": user,
+                    "Remark Image Filename": remark_img_filename
+                }
+
+                if not existing_idx.empty:
+                    # Update existing
+                    idx = existing_idx[0]
+                    for k, v in new_entry.items():
+                        user_progress.at[idx, k] = v
+                else:
+                    user_progress.loc[len(user_progress)] = new_entry
+
+                saved_any = True
 
         if saved_any:
             save_user_progress(user_progress)
@@ -181,12 +200,41 @@ elif menu == "Edit Test Cases":
             save_test_cases(test_cases)
             st.success("Test case added!")
 
-# --- Progress Dashboard Page ---
+    st.subheader("✏️ Edit or Delete Test Cases")
+    if not test_cases.empty:
+        selected = st.selectbox("Select Test Case ID", test_cases["Test Case ID"])
+        row = test_cases[test_cases["Test Case ID"] == selected].iloc[0]
+
+        page = st.text_input("Page/Field", row["Page/Field"])
+        module = st.text_input("Module", row["Module"])
+        task = st.text_input("Task", row["Task"])
+        steps = st.text_area("Steps", row["Steps"])
+        expected = st.text_area("Expected Result", row["Expected Result"])
+        new_image = st.file_uploader("Replace Image (optional)", type=["png", "jpg", "jpeg"])
+
+        if st.button("Save Changes"):
+            image_filename = row["Image Filename"]
+            if new_image:
+                safe_name = f"testcase_{selected}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{new_image.name}"
+                with open(os.path.join(IMAGES_DIR, safe_name), "wb") as f:
+                    f.write(new_image.getbuffer())
+                image_filename = safe_name
+
+            test_cases.loc[test_cases["Test Case ID"] == selected, ["Page/Field", "Module", "Task", "Steps", "Expected Result", "Image Filename"]] = [page, module, task, steps, expected, image_filename]
+            save_test_cases(test_cases)
+            st.success("Changes saved.")
+
+        if st.button("Delete Test Case"):
+            test_cases = test_cases[test_cases["Test Case ID"] != selected]
+            save_test_cases(test_cases)
+            st.success("Test case deleted.")
+
+# --- Progress Dashboard ---
 elif menu == "Progress Dashboard":
     st.title(f"📊 Progress Dashboard - User: {user}")
 
     if user_progress.empty:
-        st.info("No progress data available for you yet.")
+        st.info("No progress data available.")
     else:
         today = datetime.date.today()
         today_tests = user_progress[user_progress["Date"].dt.date == today]
@@ -200,10 +248,10 @@ elif menu == "Progress Dashboard":
         total_count = test_cases["Test Case ID"].nunique()
         st.progress(tested_count / total_count if total_count else 0)
 
-        st.subheader("🗂️ Your Test Case History")
+        st.subheader("🗂️ Test Case History")
         st.dataframe(user_progress.sort_values(by="Date", ascending=False))
 
-# --- Download Report Page ---
+# --- Download Report ---
 elif menu == "Download Report":
     st.title(f"📄 Generate & Download Report - User: {user}")
 
@@ -215,6 +263,8 @@ elif menu == "Download Report":
 
         user_progress.to_csv(report_file, index=False)
         st.success("Report ready!")
+
+        st.dataframe(user_progress)
 
         with open(report_file, "rb") as f:
             st.download_button("📥 Download Report", f, file_name=os.path.basename(report_file), mime="text/csv")
