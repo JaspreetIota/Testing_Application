@@ -66,25 +66,43 @@ elif menu == "Edit Test Cases":
     st.title("📝 Edit / Add Test Cases")
 
     with st.expander("➕ Add New Test Case"):
-        new_id = st.text_input("Test Case ID")
-        page = st.text_input("Page/Field")
-        module = st.text_input("Module")
-        task = st.text_input("Task")
-        steps = st.text_area("Steps")
-        expected = st.text_area("Expected Result")
+    # Auto-generate next Test Case ID
+    def generate_next_id():
+        if test_cases.empty:
+            return "TC001"
+        else:
+            # Extract numeric part from existing IDs
+            ids = test_cases["Test Case ID"].dropna().tolist()
+            numbers = []
+            for id_ in ids:
+                # Extract trailing digits from ID string
+                digits = ''.join(filter(str.isdigit, id_))
+                if digits.isdigit():
+                    numbers.append(int(digits))
+            next_num = max(numbers) + 1 if numbers else 1
+            return f"TC{next_num:03d}"
 
-        if st.button("Add Test Case"):
-            new_row = {
-                "Test Case ID": new_id,
-                "Page/Field": page,
-                "Module": module,
-                "Task": task,
-                "Steps": steps,
-                "Expected Result": expected
-            }
-            test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
-            test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
-            st.success("Test case added!")
+    new_id = generate_next_id()
+    st.text_input("Test Case ID", value=new_id, disabled=True)
+
+    page = st.text_input("Page/Field")
+    module = st.text_input("Module")
+    task = st.text_input("Task")
+    steps = st.text_area("Steps")
+    expected = st.text_area("Expected Result")
+
+    if st.button("Add Test Case"):
+        new_row = {
+            "Test Case ID": new_id,
+            "Page/Field": page,
+            "Module": module,
+            "Task": task,
+            "Steps": steps,
+            "Expected Result": expected
+        }
+        test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
+        test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
+        st.success(f"Test case {new_id} added!")
 
     st.markdown("---")
     st.subheader("✏️ Edit Existing Test Cases")
