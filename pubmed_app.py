@@ -64,18 +64,15 @@ if menu == "Run Tests":
 # ---------- Edit Test Cases ----------
 elif menu == "Edit Test Cases":
     st.title("📝 Edit / Add Test Cases")
-
+    
     with st.expander("➕ Add New Test Case"):
-    # Auto-generate next Test Case ID
-    def generate_next_id():
+        def generate_next_id():
         if test_cases.empty:
             return "TC001"
         else:
-            # Extract numeric part from existing IDs
             ids = test_cases["Test Case ID"].dropna().tolist()
             numbers = []
             for id_ in ids:
-                # Extract trailing digits from ID string
                 digits = ''.join(filter(str.isdigit, id_))
                 if digits.isdigit():
                     numbers.append(int(digits))
