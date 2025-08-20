@@ -24,18 +24,43 @@ if not os.path.exists(PROGRESS_FILE):
     df.to_csv(PROGRESS_FILE, index=False)
 
 # ---------- Load Data ----------
-test_cases = pd.read_excel(DATA_FILE, engine='openpyxl')
-progress = pd.read_csv(PROGRESS_FILE)
-if not progress.empty:
-    progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')
+def load_test_cases():
+    return pd.read_excel(DATA_FILE, engine='openpyxl')
+
+def load_progress():
+    df = pd.read_csv(PROGRESS_FILE)
+    if not df.empty:
+        df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+    return df
+
+test_cases = load_test_cases()
+progress = load_progress()
 
 # ---------- Sidebar ----------
 st.sidebar.title("🧪 Test Case Tracker")
 menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report"])
 st.sidebar.markdown("---")
-user = st.sidebar.text_input("Tester Name", value="Tester")
+user = st.sidebar.text_input("Tester Name", value="Tester").strip()
 
-# ---------- Helper Functions ----------
+if "expanded_state" not in st.session_state:
+    st.session_state.expanded_state = True
+
+if "test_status" not in st.session_state:
+    st.session_state.test_status = {}  # store checkbox status per test case
+
+if "remarks" not in st.session_state:
+    st.session_state.remarks = {}
+
+if "remark_images" not in st.session_state:
+    st.session_state.remark_images = {}
+
+# Helper Functions
+def save_test_cases(df):
+    df.to_excel(DATA_FILE, index=False, engine='openpyxl')
+
+def save_progress(df):
+    df.to_csv(PROGRESS_FILE, index=False)
+
 def generate_next_id():
     if test_cases.empty:
         return "TC001"
@@ -44,140 +69,118 @@ def generate_next_id():
     next_num = max(nums) + 1 if nums else 1
     return f"TC{next_num:03d}"
 
-def save_test_cases(df):
-    df.to_excel(DATA_FILE, index=False, engine='openpyxl')
+def clear_run_test_state():
+    st.session_state.test_status = {}
+    st.session_state.remarks = {}
+    st.session_state.remark_images = {}
 
-def save_progress(df):
-    df.to_csv(PROGRESS_FILE, index=False)
-
-# ---------- Run Tests ----------
+# ----------- Run Tests -----------
 if menu == "Run Tests":
     st.title("✅ Run Test Cases")
 
-    if "run_test_data" not in st.session_state:
-        # Initialize session state for all test cases with keys: tested, remark, remark_img
-        st.session_state.run_test_data = {}
-        for _, row in test_cases.iterrows():
-            st.session_state.run_test_data[row["Test Case ID"]] = {
-                "tested": False,
-                "remark": "",
-                "remark_img": None,
-                "remark_img_filename": ""
-            }
-
-    # Refresh button
-    if st.button("🔄 Refresh Test Session (Clear all selections)"):
-        st.session_state.run_test_data = {}
-        for _, row in test_cases.iterrows():
-            st.session_state.run_test_data[row["Test Case ID"]] = {
-                "tested": False,
-                "remark": "",
-                "remark_img": None,
-                "remark_img_filename": ""
-            }
-        st.experimental_rerun()
-
     view_mode = st.radio("Choose view mode:", ["Expanded View", "Table View"], horizontal=True)
 
+    col1, col2 = st.columns(2)
+    if col1.button("Expand All"):
+        st.session_state.expanded_state = True
+    if col2.button("Collapse All"):
+        st.session_state.expanded_state = False
+
+    if st.button("Refresh / Clear Data"):
+        clear_run_test_state()
+        st.experimental_rerun()
+
     if view_mode == "Expanded View":
-        col1, col2 = st.columns(2)
-        if col1.button("Expand All"):
-            st.session_state.expand_all = True
-        if col2.button("Collapse All"):
-            st.session_state.expand_all = False
-
-        expand_all = st.session_state.get("expand_all", True)
-
         for idx, row in test_cases.iterrows():
-            test_id = row["Test Case ID"]
-            expander = st.expander(f"{test_id} - {row['Task']}", expanded=expand_all)
-
-            with expander:
+            tc_id = row["Test Case ID"]
+            with st.expander(f"{tc_id} - {row['Task']}", expanded=st.session_state.expanded_state):
                 st.markdown(f"**Module:** {row['Module']}")
                 st.markdown(f"**Page/Field:** {row['Page/Field']}")
                 st.markdown(f"**Steps:** {row['Steps']}")
                 st.markdown(f"**Expected Result:** {row['Expected Result']}")
-                if pd.notna(row.get("Image Filename", "")) and row.get("Image Filename", "") != "":
-                    img_path = os.path.join(IMAGES_DIR, row["Image Filename"])
+
+                # Show attached image for test case if any
+                img_filename = row.get("Image Filename", "")
+                if pd.notna(img_filename) and img_filename != "":
+                    img_path = os.path.join(IMAGES_DIR, img_filename)
                     if os.path.exists(img_path):
                         st.image(img_path, caption="Attached Image", use_column_width=True)
 
-                # Access session state for this test case
-                tested_key = f"tested_{test_id}"
-                remark_key = f"remark_{test_id}"
-                remark_img_key = f"remark_img_{test_id}"
+                # Checkbox - maintain state in session_state
+                checked = st.session_state.test_status.get(tc_id, False)
+                new_checked = st.checkbox("Mark as Tested", key=f"chk_{tc_id}", value=checked)
+                st.session_state.test_status[tc_id] = new_checked
 
-                # Initialize if not present
-                if test_id not in st.session_state.run_test_data:
-                    st.session_state.run_test_data[test_id] = {
-                        "tested": False,
-                        "remark": "",
-                        "remark_img": None,
-                        "remark_img_filename": ""
-                    }
+                # Remarks - maintain state in session_state
+                rem_text = st.session_state.remarks.get(tc_id, "")
+                new_remark = st.text_area("Remarks", value=rem_text, key=f"remark_{tc_id}")
+                st.session_state.remarks[tc_id] = new_remark
 
-                # Checkbox and inputs with session state binding
-                tested_val = st.checkbox("Mark as Tested", value=st.session_state.run_test_data[test_id]["tested"], key=tested_key)
-                remark_val = st.text_area("Remarks", value=st.session_state.run_test_data[test_id]["remark"], key=remark_key)
-                remark_img_val = st.file_uploader("Attach image with remark (optional)", type=["png", "jpg", "jpeg"], key=remark_img_key)
+                # Upload image for remark - maintain state
+                remark_img = st.session_state.remark_images.get(tc_id)
+                uploaded_img = st.file_uploader("Attach image with remark (optional)", type=["png", "jpg", "jpeg"], key=f"img_{tc_id}")
 
-                # Update session state
-                st.session_state.run_test_data[test_id]["tested"] = tested_val
-                st.session_state.run_test_data[test_id]["remark"] = remark_val
+                # If new image uploaded, update session state
+                if uploaded_img is not None:
+                    st.session_state.remark_images[tc_id] = uploaded_img
+                elif remark_img is None:
+                    st.session_state.remark_images[tc_id] = None
 
-                # Handle uploaded remark image: save temporarily in session state, actual save on submit
-                if remark_img_val is not None:
-                    st.session_state.run_test_data[test_id]["remark_img"] = remark_img_val
-
-        # Button to save all marked tests to progress log
         if st.button("Save Tested Results"):
-            # Load progress fresh to avoid conflicts
-            global progress
-            progress = pd.read_csv(PROGRESS_FILE)
-            if not progress.empty:
-                progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')
+            # Reload progress fresh
+            progress_df = load_progress()
 
-            entries_to_add = []
-            for test_id, data in st.session_state.run_test_data.items():
-                if data["tested"]:
+            # For each test case marked as tested, add or update progress entry
+            for tc_id, marked in st.session_state.test_status.items():
+                if marked:
+                    # Find existing progress entry for this test case by this user and today
+                    existing = progress_df[
+                        (progress_df["Test Case ID"] == tc_id) &
+                        (progress_df["User"] == user) &
+                        (progress_df["Date"].dt.date == datetime.date.today())
+                    ]
+
+                    remark_text = st.session_state.remarks.get(tc_id, "")
+                    remark_img_file = st.session_state.remark_images.get(tc_id)
+
                     # Save remark image if uploaded
                     remark_img_filename = ""
-                    if data["remark_img"] is not None:
-                        safe_name = f"remark_{test_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{data['remark_img'].name}"
+                    if remark_img_file is not None:
+                        safe_name = f"remark_{tc_id}_{user}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img_file.name}"
                         with open(os.path.join(IMAGES_DIR, safe_name), "wb") as f:
-                            f.write(data["remark_img"].getbuffer())
+                            f.write(remark_img_file.getbuffer())
                         remark_img_filename = safe_name
 
-                    # Check if already marked tested today by this user, update or add new
-                    existing_idx = progress[
-                        (progress["Test Case ID"] == test_id) &
-                        (progress["Date"].dt.date == datetime.date.today()) &
-                        (progress["User"] == user)
-                    ].index
-
-                    entry = {
-                        "Test Case ID": test_id,
-                        "Date": datetime.date.today(),
+                    new_entry = {
+                        "Test Case ID": tc_id,
+                        "Date": datetime.datetime.now(),
                         "Status": "Tested",
-                        "Remarks": data["remark"],
+                        "Remarks": remark_text,
                         "User": user,
                         "Remark Image Filename": remark_img_filename
                     }
-                    if len(existing_idx) > 0:
-                        # Update existing row
-                        progress.loc[existing_idx[0]] = entry
+
+                    if not existing.empty:
+                        # Update existing row (only latest entry today per user per test case)
+                        idx = existing.index[-1]
+                        for k, v in new_entry.items():
+                            progress_df.at[idx, k] = v
                     else:
-                        entries_to_add.append(entry)
+                        # Append new entry
+                        progress_df = pd.concat([progress_df, pd.DataFrame([new_entry])], ignore_index=True)
 
-            if entries_to_add:
-                progress = pd.concat([progress, pd.DataFrame(entries_to_add)], ignore_index=True)
-            save_progress(progress)
-            st.success("Test results saved!")
+            # Save updated progress file
+            save_progress(progress_df)
+            st.success("Progress saved!")
 
-    else:  # Table View
+            # Clear run test inputs after saving
+            clear_run_test_state()
+            progress = load_progress()  # reload globally for later
+
+    else:  # Table view
         st.dataframe(test_cases.drop(columns=["Image Filename"], errors="ignore"))
 
-# ---------- Edit Test Cases ----------
+# ----------- Edit Test Cases -----------
 elif menu == "Edit Test Cases":
     st.title("📝 Edit / Add Test Cases")
 
@@ -192,7 +195,6 @@ elif menu == "Edit Test Cases":
         image = st.file_uploader("Attach Image (optional)", type=["png", "jpg", "jpeg"])
 
         if st.button("Add Test Case"):
-            global test_cases
             image_filename = ""
             if image:
                 safe_name = f"testcase_{new_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{image.name}"
@@ -259,40 +261,37 @@ elif menu == "Edit Test Cases":
             save_test_cases(test_cases)
             st.success("Test case deleted.")
 
-# ---------- Progress Dashboard ----------
+# ----------- Progress Dashboard -----------
 elif menu == "Progress Dashboard":
     st.title("📊 Progress Dashboard")
 
-    user_filtered_progress = progress
-    if user.strip():
-        user_filtered_progress = progress[progress["User"] == user]
+    progress = load_progress()  # reload fresh
 
-    if user_filtered_progress.empty:
+    if progress.empty:
         st.info("No progress data available.")
     else:
         today = datetime.date.today()
-        today_tests = user_filtered_progress[user_filtered_progress["Date"].dt.date == today]
-        week_tests = user_filtered_progress[user_filtered_progress["Date"] >= pd.to_datetime(today - datetime.timedelta(days=7))]
+        today_tests = progress[progress["Date"].dt.date == today]
+        week_tests = progress[progress["Date"] >= pd.to_datetime(today - datetime.timedelta(days=7))]
 
         st.metric("Tested Today", len(today_tests))
         st.metric("Tested This Week", len(week_tests))
-        st.metric("Total Tests Logged", len(user_filtered_progress))
+        st.metric("Total Tests Logged", len(progress))
 
-        tested = user_filtered_progress["Test Case ID"].nunique()
+        tested = progress["Test Case ID"].nunique()
         total = test_cases["Test Case ID"].nunique()
         st.progress(tested / total if total else 0)
 
         st.subheader("🗂️ Test Case History")
-        st.dataframe(user_filtered_progress.sort_values(by="Date", ascending=False))
+        st.dataframe(progress.sort_values(by="Date", ascending=False))
 
-# ---------- Download Report ----------
+# ----------- Download Report -----------
 elif menu == "Download Report":
     st.title("📄 Generate & Download Report")
 
-    filtered = progress
-    if user.strip():
-        filtered = progress[progress["User"] == user]
+    progress = load_progress()  # reload fresh
 
+    filtered = progress if not user else progress[progress["User"] == user]
     if filtered.empty:
         st.info("No progress to report.")
     else:
