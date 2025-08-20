@@ -39,8 +39,16 @@ if menu == "Run Tests":
     if test_cases.empty:
         st.warning("No test cases found.")
     else:
+        # --- Expand/Collapse Toggle ---
+        if "expand_all" not in st.session_state:
+            st.session_state["expand_all"] = True  # default: expanded
+
+        toggle_label = "🔽 Collapse All" if st.session_state["expand_all"] else "▶️ Expand All"
+        if st.button(toggle_label):
+            st.session_state["expand_all"] = not st.session_state["expand_all"]
+
         for index, row in test_cases.iterrows():
-            with st.expander(f"🔹 {row['Test Case ID']} - {row['Task']}"):
+            with st.expander(f"🔹 {row['Test Case ID']} - {row['Task']}", expanded=st.session_state["expand_all"]):
                 st.markdown(f"**📄 Module**: {row['Module']}")
                 st.markdown(f"**📑 Page/Field**: {row['Page/Field']}")
                 st.markdown(f"**📝 Steps**:\n{row['Steps']}")
@@ -70,7 +78,6 @@ elif menu == "Edit Test Cases":
     st.title("📝 Edit / Add Test Cases")
 
     with st.expander("➕ Add New Test Case"):
-
         def generate_next_id():
             if test_cases.empty:
                 return "TC001"
@@ -101,6 +108,21 @@ elif menu == "Edit Test Cases":
             test_cases = pd.concat([test_cases, pd.DataFrame([new_row])], ignore_index=True)
             test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
             st.success(f"Test case {new_id} added!")
+
+    with st.expander("📤 Upload Test Cases from Excel"):
+        uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+        if uploaded_file:
+            try:
+                uploaded_df = pd.read_excel(uploaded_file, engine='openpyxl')
+                required_columns = ["Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result"]
+                if all(col in uploaded_df.columns for col in required_columns):
+                    test_cases = pd.concat([test_cases, uploaded_df], ignore_index=True).drop_duplicates(subset="Test Case ID")
+                    test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
+                    st.success("Test cases imported successfully!")
+                else:
+                    st.error("Uploaded file must have the correct columns.")
+            except Exception as e:
+                st.error(f"Error reading file: {e}")
 
     st.markdown("---")
     st.subheader("✏️ Edit / Delete Existing Test Case")
