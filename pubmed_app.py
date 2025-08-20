@@ -4,23 +4,24 @@ import datetime
 import os
 
 # ---------- File Paths ----------
-DATA_FILE = "test_cases.csv"
-PROGRESS_FILE = "progress.csv"
+DATA_FILE = "test_cases.xlsx"         # <-- Excel for test cases
+PROGRESS_FILE = "progress.csv"        # <-- CSV for progress
 REPORTS_DIR = "reports"
 
-# ---------- Ensure required files exist ----------
+# ---------- Ensure folders exist ----------
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
+# ---------- Initialize Files ----------
 if not os.path.exists(DATA_FILE):
     df = pd.DataFrame(columns=["Test Case ID", "Page/Field", "Module", "Task", "Steps", "Expected Result"])
-    df.to_csv(DATA_FILE, index=False)
+    df.to_excel(DATA_FILE, index=False)
 
 if not os.path.exists(PROGRESS_FILE):
     progress_df = pd.DataFrame(columns=["Test Case ID", "Date", "Status", "Remarks", "User"])
     progress_df.to_csv(PROGRESS_FILE, index=False)
 
 # ---------- Load Data ----------
-test_cases = pd.read_csv(DATA_FILE)
+test_cases = pd.read_excel(DATA_FILE)
 progress = pd.read_csv(PROGRESS_FILE)
 
 # ---------- Sidebar ----------
@@ -80,7 +81,7 @@ elif menu == "Edit Test Cases":
                 "Expected Result": expected
             }
             test_cases = test_cases.append(new_row, ignore_index=True)
-            test_cases.to_csv(DATA_FILE, index=False)
+            test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
             st.success("Test case added!")
 
     st.markdown("---")
@@ -95,7 +96,7 @@ elif menu == "Edit Test Cases":
 
         if st.button("Save Changes"):
             test_cases.loc[test_cases["Test Case ID"] == edit_id, ["Task", "Steps", "Expected Result"]] = [new_task, new_steps, new_expected]
-            test_cases.to_csv(DATA_FILE, index=False)
+            test_cases.to_excel(DATA_FILE, index=False, engine='openpyxl')
             st.success("Changes saved!")
 
 # ---------- Progress Dashboard ----------
