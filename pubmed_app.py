@@ -76,8 +76,6 @@ if menu == "Run Tests":
                 st.session_state[tested_key] = False
             if remark_key not in st.session_state:
                 st.session_state[remark_key] = ""
-            if image_key not in st.session_state:
-                st.session_state[image_key] = None
 
             tested = st.checkbox("Mark as Tested", key=tested_key)
             remark = st.text_area("Remarks", value=st.session_state[remark_key], key=remark_key)
