@@ -14,7 +14,7 @@ os.makedirs(IMAGE_DIR, exist_ok=True)
 
 # ---------- LOAD USER ----------
 st.sidebar.title("🧪 Test Case Tracker")
-menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report"])
+menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Test Cases Table", "Progress Dashboard", "Download Report"])
 user = st.sidebar.text_input("Tester Name", value="Tester").strip()
 if not user:
     st.warning("Please enter your name.")
@@ -47,6 +47,61 @@ else:
 # ---------- SAVE PROGRESS FUNCTION ----------
 def save_progress():
     progress.to_csv(progress_file, index=False)
+
+# ---------- HELPER: SANITIZE FILENAME ----------
+def sanitize_filename(filename):
+    return re.sub(r'[^\w\-_\. ]', '_', filename)
+
+# ---------- HELPER: GET PROGRESS ENTRY FOR USER AND DATE ----------
+def get_progress_entry(tc_id, date, user):
+    filtered = progress[
+        (progress["Test Case ID"] == tc_id) &
+        (progress["Date"].dt.date == date) &
+        (progress["User"] == user)
+    ]
+    return filtered
+
+# ---------- UPDATE OR ADD PROGRESS ENTRY ----------
+def update_progress(tc_id, date, status, remarks, user, remark_img_file=None):
+    filtered = get_progress_entry(tc_id, date, user)
+    remark_img_filename = ""
+
+    if not filtered.empty:
+        idx = filtered.index[-1]
+        # Handle image upload
+        if remark_img_file:
+            safe_img_name = f"{tc_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{sanitize_filename(remark_img_file.name)}"
+            image_path = os.path.join(IMAGE_DIR, safe_img_name)
+            with open(image_path, "wb") as f:
+                f.write(remark_img_file.getbuffer())
+            remark_img_filename = safe_img_name
+        else:
+            remark_img_filename = progress.at[idx, "Remark Image Filename"]
+
+        progress.at[idx, "Remarks"] = remarks
+        progress.at[idx, "Remark Image Filename"] = remark_img_filename
+        progress.at[idx, "Date"] = datetime.datetime.now()
+        progress.at[idx, "Status"] = status
+        progress.at[idx, "User"] = user
+    else:
+        if remark_img_file:
+            safe_img_name = f"{tc_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{sanitize_filename(remark_img_file.name)}"
+            image_path = os.path.join(IMAGE_DIR, safe_img_name)
+            with open(image_path, "wb") as f:
+                f.write(remark_img_file.getbuffer())
+            remark_img_filename = safe_img_name
+
+        new_entry = {
+            "Test Case ID": tc_id,
+            "Date": datetime.datetime.now(),
+            "Status": status,
+            "Remarks": remarks,
+            "User": user,
+            "Remark Image Filename": remark_img_filename
+        }
+        progress.loc[len(progress)] = new_entry
+
+    save_progress()
 
 # ---------- RUN TESTS ----------
 if menu == "Run Tests":
@@ -83,17 +138,17 @@ if menu == "Run Tests":
 
                 # Initialize session state safely
                 if tested_key not in st.session_state:
-                    # Try to restore from progress for today
                     filtered = progress[
                         (progress["Test Case ID"] == tc_id) &
-                        (pd.to_datetime(progress["Date"], errors='coerce').dt.date == today)
+                        (pd.to_datetime(progress["Date"], errors='coerce').dt.date == today) &
+                        (progress["User"] == user)
                     ]
                     st.session_state[tested_key] = not filtered.empty and filtered.iloc[-1]["Status"] == "Tested"
                 if remark_key not in st.session_state:
-                    # Try to restore from progress for today remarks
                     filtered = progress[
                         (progress["Test Case ID"] == tc_id) &
-                        (pd.to_datetime(progress["Date"], errors='coerce').dt.date == today)
+                        (pd.to_datetime(progress["Date"], errors='coerce').dt.date == today) &
+                        (progress["User"] == user)
                     ]
                     if not filtered.empty:
                         st.session_state[remark_key] = filtered.iloc[-1]["Remarks"] if pd.notna(filtered.iloc[-1]["Remarks"]) else ""
@@ -106,51 +161,14 @@ if menu == "Run Tests":
 
                 # Auto Save Logic
                 if tested:
-                    # Filter existing progress for today's test case entry
-                    filtered = progress[
-                        (progress["Test Case ID"] == tc_id) &
-                        (pd.to_datetime(progress["Date"], errors='coerce').dt.date == today)
-                    ].copy()
+                    update_progress(tc_id, today, "Tested", remark, user, remark_img)
+                    st.success("Auto-saved!")
 
-                    # Save or update progress entry for this test case & day
-                    if filtered.empty:
-                        remark_img_filename = ""
-                        if remark_img:
-                            safe_img_name = f"{tc_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img.name}"
-                            image_path = os.path.join(IMAGE_DIR, safe_img_name)
-                            with open(image_path, "wb") as f:
-                                f.write(remark_img.getbuffer())
-                            remark_img_filename = safe_img_name
-
-                        new_entry = {
-                            "Test Case ID": tc_id,
-                            "Date": datetime.datetime.now(),
-                            "Status": "Tested",
-                            "Remarks": remark,
-                            "User": user,
-                            "Remark Image Filename": remark_img_filename
-                        }
-                        progress.loc[len(progress)] = new_entry
-                        save_progress()
-                        st.success("Auto-saved!")
-                    else:
-                        # Update existing entry
-                        idx = filtered.index[-1]
-                        remark_img_filename = progress.at[idx, "Remark Image Filename"]
-                        if remark_img:
-                            safe_img_name = f"{tc_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img.name}"
-                            image_path = os.path.join(IMAGE_DIR, safe_img_name)
-                            with open(image_path, "wb") as f:
-                                f.write(remark_img.getbuffer())
-                            remark_img_filename = safe_img_name
-
-                        progress.at[idx, "Remarks"] = remark
-                        progress.at[idx, "Remark Image Filename"] = remark_img_filename
-                        progress.at[idx, "Date"] = datetime.datetime.now()
-                        progress.at[idx, "Status"] = "Tested"
-                        progress.at[idx, "User"] = user
-                        save_progress()
-                        st.success("Auto-saved!")
+                elif tested_key in st.session_state and not tested:
+                    # If unchecked, remove or mark as Not Tested
+                    # For simplicity, mark as Not Tested with empty remarks
+                    update_progress(tc_id, today, "Not Tested", "", user)
+                    st.info(f"Marked {tc_id} as Not Tested.")
 
     elif view_mode == "Table":
         st.info("Edit the test cases directly below. After editing, click 'Save Edits' to update.")
@@ -184,7 +202,7 @@ elif menu == "Edit Test Cases":
         if st.button("Add Test Case"):
             image_filename = ""
             if image:
-                safe_name = f"{new_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{image.name}"
+                safe_name = f"{new_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{sanitize_filename(image.name)}"
                 with open(os.path.join(IMAGE_DIR, safe_name), "wb") as f:
                     f.write(image.getbuffer())
                 image_filename = safe_name
@@ -201,6 +219,68 @@ elif menu == "Edit Test Cases":
             test_cases.loc[len(test_cases)] = new_row
             test_cases.to_excel(TEST_CASES_FILE, index=False, engine='openpyxl')
             st.success("Test case added!")
+
+# ---------- NEW VIEW: TEST CASES TABLE WITH PROGRESS ----------
+elif menu == "Test Cases Table":
+    st.title("🧪 Test Cases Table with Marking")
+
+    today = datetime.date.today()
+
+    # Merge test_cases with progress for today's user progress
+    today_progress = progress[
+        (progress["Date"].dt.date == today) &
+        (progress["User"] == user)
+    ].copy()
+
+    # Use dict for quick lookup of progress by Test Case ID
+    progress_map = {}
+    for _, row in today_progress.iterrows():
+        progress_map[row["Test Case ID"]] = row
+
+    # Prepare lists for updated progress (to batch save later)
+    updated_entries = []
+
+    st.write("Mark test cases as tested, add remarks and upload images below. Changes auto-save.")
+
+    for idx, row in test_cases.iterrows():
+        tc_id = row["Test Case ID"]
+        st.markdown(f"---\n**{tc_id} - {row['Task']}**")
+
+        # Get existing progress info if available
+        prog_entry = progress_map.get(tc_id, None)
+        tested_key = f"{tc_id}_table_tested"
+        remark_key = f"{tc_id}_table_remark"
+        file_key = f"{tc_id}_table_file"
+
+        # Initialize session state if not exist
+        if tested_key not in st.session_state:
+            st.session_state[tested_key] = (prog_entry is not None and prog_entry["Status"] == "Tested")
+        if remark_key not in st.session_state:
+            st.session_state[remark_key] = prog_entry["Remarks"] if (prog_entry is not None and pd.notna(prog_entry["Remarks"])) else ""
+        if file_key not in st.session_state:
+            st.session_state[file_key] = None
+
+        # UI elements
+        col1, col2, col3 = st.columns([0.1, 0.6, 0.3])
+        with col1:
+            tested = st.checkbox("", key=tested_key)
+        with col2:
+            remark = st.text_area("", value=st.session_state[remark_key], key=remark_key, height=75)
+        with col3:
+            remark_img = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"], key=file_key)
+
+        # When any input changes, update progress immediately
+        if tested != st.session_state[tested_key] or remark != st.session_state[remark_key] or remark_img is not None:
+            st.session_state[tested_key] = tested
+            st.session_state[remark_key] = remark
+
+            # Save progress immediately
+            if tested:
+                update_progress(tc_id, today, "Tested", remark, user, remark_img)
+                st.success(f"{tc_id} progress saved.")
+            else:
+                update_progress(tc_id, today, "Not Tested", "", user)
+                st.info(f"{tc_id} marked as Not Tested.")
 
 # ---------- DASHBOARD ----------
 elif menu == "Progress Dashboard":
@@ -222,7 +302,18 @@ elif menu == "Progress Dashboard":
         total = test_cases["Test Case ID"].nunique()
         st.progress(tested / total if total else 0)
 
-        st.dataframe(progress)
+        # Join progress with test_cases info
+        merged = progress.merge(test_cases, on="Test Case ID", how="left")
+
+        # Show important columns
+        cols_to_show = ["Test Case ID", "Date", "Status", "User", "Remarks", "Remark Image Filename",
+                        "Page/Field", "Module", "Task", "Steps", "Expected Result"]
+        merged_display = merged[cols_to_show].copy()
+
+        # Format Date nicely
+        merged_display["Date"] = merged_display["Date"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        st.dataframe(merged_display)
 
 # ---------- REPORT ----------
 elif menu == "Download Report":
@@ -231,8 +322,17 @@ elif menu == "Download Report":
     if progress.empty:
         st.warning("No report available.")
     else:
+        # Merge with test cases for full details
+        merged = progress.merge(test_cases, on="Test Case ID", how="left")
+
+        cols_to_export = ["Test Case ID", "Date", "Status", "User", "Remarks", "Remark Image Filename",
+                          "Page/Field", "Module", "Task", "Steps", "Expected Result"]
+
+        report_df = merged[cols_to_export].copy()
+        report_df["Date"] = pd.to_datetime(report_df["Date"], errors='coerce').dt.strftime("%Y-%m-%d %H:%M:%S")
+
         report_file = os.path.join(PROGRESS_DIR, f"report_{user}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
-        progress.to_csv(report_file, index=False)
+        report_df.to_csv(report_file, index=False)
         st.success("Report ready!")
 
         with open(report_file, "rb") as f:
