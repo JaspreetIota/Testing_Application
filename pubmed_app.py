@@ -79,7 +79,7 @@ if menu == "Run Tests":
 
             tested = st.checkbox("Mark as Tested", key=tested_key)
             remark = st.text_area("Remarks", value=st.session_state[remark_key], key=remark_key)
-            remark_img = st.file_uploader("Attach image (optional)", type=["jpg", "jpeg", "png"])
+            remark_img = st.file_uploader("Attach image (optional)", type=["jpg", "jpeg", "png"], key=f"{tc_id}_file")
 
             # Auto Save
             if tested:
