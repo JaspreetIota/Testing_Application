@@ -52,8 +52,34 @@ def save_progress():
 if menu == "Run Tests":
     st.title("✅ Run Test Cases")
 
+    # Refresh button
+    if st.button("🔄 Refresh Work (clear session state)"):
+        for key in list(st.session_state.keys()):
+            if key.endswith("_tested") or key.endswith("_remark") or key.endswith("_file"):
+                del st.session_state[key]
+        st.experimental_rerun()
+
     view_mode = st.radio("View Mode", ["Expanded View", "Table View"], horizontal=True)
     today = datetime.date.today()
+
+    # Load existing progress into session state for continuity
+    for _, row in test_cases.iterrows():
+        tc_id = row['Test Case ID']
+        tested_key = f"{tc_id}_tested"
+        remark_key = f"{tc_id}_remark"
+
+        # Look for existing progress for today for this test case
+        if tested_key not in st.session_state or remark_key not in st.session_state:
+            filtered = progress[
+                (progress["Test Case ID"] == tc_id) &
+                (progress["Date"].dt.date == today)
+            ]
+            if not filtered.empty:
+                st.session_state[tested_key] = True
+                st.session_state[remark_key] = filtered.iloc[-1]["Remarks"]
+            else:
+                st.session_state.setdefault(tested_key, False)
+                st.session_state.setdefault(remark_key, "")
 
     for _, row in test_cases.iterrows():
         tc_id = row['Test Case ID']
@@ -71,34 +97,29 @@ if menu == "Run Tests":
             tested_key = f"{tc_id}_tested"
             remark_key = f"{tc_id}_remark"
 
-            # Load state or initialize
-            if tested_key not in st.session_state:
-                st.session_state[tested_key] = False
-            if remark_key not in st.session_state:
-                st.session_state[remark_key] = ""
-
             tested = st.checkbox("Mark as Tested", key=tested_key)
             remark = st.text_area("Remarks", value=st.session_state[remark_key], key=remark_key)
             remark_img = st.file_uploader("Attach image (optional)", type=["jpg", "jpeg", "png"], key=f"{tc_id}_file")
 
-            # Auto Save
+            # Auto Save - update progress only if tested is checked
             if tested:
-                progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')  # <--- enforce datetime!
+                progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')
                 filtered = progress[
-                (progress["Test Case ID"] == tc_id) &
-                (pd.to_datetime(progress["Date"], errors='coerce').dt.date == today)
+                    (progress["Test Case ID"] == tc_id) &
+                    (progress["Date"].dt.date == today)
                 ].copy()
                 already_logged = filtered.shape[0]
 
-                if already_logged == 0:
-                    remark_img_filename = ""
-                    if remark_img:
-                        safe_img_name = f"{tc_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img.name}"
-                        image_path = os.path.join(IMAGE_DIR, safe_img_name)
-                        with open(image_path, "wb") as f:
-                            f.write(remark_img.getbuffer())
-                        remark_img_filename = safe_img_name
+                remark_img_filename = ""
+                if remark_img:
+                    safe_img_name = f"{tc_id}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{remark_img.name}"
+                    image_path = os.path.join(IMAGE_DIR, safe_img_name)
+                    with open(image_path, "wb") as f:
+                        f.write(remark_img.getbuffer())
+                    remark_img_filename = safe_img_name
 
+                if already_logged == 0:
+                    # New entry
                     new_entry = {
                         "Test Case ID": tc_id,
                         "Date": datetime.datetime.now(),
@@ -110,6 +131,13 @@ if menu == "Run Tests":
                     progress.loc[len(progress)] = new_entry
                     save_progress()
                     st.success("Auto-saved!")
+                else:
+                    # Update existing entry (only one per test case per day)
+                    idx = filtered.index[-1]
+                    progress.at[idx, "Remarks"] = remark
+                    if remark_img_filename:
+                        progress.at[idx, "Remark Image Filename"] = remark_img_filename
+                    save_progress()
 
     if view_mode == "Table View":
         st.dataframe(test_cases.drop(columns=["Image Filename"], errors="ignore"))
@@ -164,7 +192,6 @@ elif menu == "Progress Dashboard":
     else:
         today = datetime.date.today()
         progress["Date"] = pd.to_datetime(progress["Date"], errors="coerce")
-        progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')
         today_tests = progress[progress["Date"].dt.date == today].copy()
         week_tests = progress[progress["Date"] >= datetime.datetime.now() - datetime.timedelta(days=7)].copy()
 
