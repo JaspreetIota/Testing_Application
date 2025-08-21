@@ -5,7 +5,7 @@ import os
 import re
 
 # ---------- CONFIG ----------
-TEST_CASES_FILE = "test_cases.xlsx"
+TEST_CASES_FILE = "test_Cases.xlsx"
 PROGRESS_DIR = "progress"
 IMAGE_DIR = "images"
 
