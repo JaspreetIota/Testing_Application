@@ -33,6 +33,9 @@ if not os.path.exists(TEST_CASES_FILE):
 
 test_cases = pd.read_excel(TEST_CASES_FILE, engine='openpyxl')
 
+if "Image Filename" not in test_cases.columns:
+    test_cases["Image Filename"] = ""
+
 # ---------- LOAD PROGRESS ----------
 if os.path.exists(progress_file):
     progress = pd.read_csv(progress_file)
