@@ -70,7 +70,6 @@ if menu == "Run Tests":
 
             tested_key = f"{tc_id}_tested"
             remark_key = f"{tc_id}_remark"
-            image_key = f"{tc_id}_img"
 
             # Load state or initialize
             if tested_key not in st.session_state:
@@ -82,7 +81,7 @@ if menu == "Run Tests":
 
             tested = st.checkbox("Mark as Tested", key=tested_key)
             remark = st.text_area("Remarks", value=st.session_state[remark_key], key=remark_key)
-            remark_img = st.file_uploader("Attach image (optional)", type=["jpg", "jpeg", "png"], key=image_key)
+            remark_img = st.file_uploader("Attach image (optional)", type=["jpg", "jpeg", "png"])
 
             # Auto Save
             if tested:
