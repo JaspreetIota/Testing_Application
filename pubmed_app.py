@@ -83,7 +83,13 @@ if menu == "Run Tests":
 
             # Auto Save
             if tested:
-                already_logged = progress[(progress["Test Case ID"] == tc_id) & (progress["Date"].dt.date == today)].shape[0]
+                progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')  # <--- enforce datetime!
+                filtered = progress[
+                (progress["Test Case ID"] == tc_id) &
+                (pd.to_datetime(progress["Date"], errors='coerce').dt.date == today)
+                ].copy()
+                already_logged = filtered.shape[0]
+
                 if already_logged == 0:
                     remark_img_filename = ""
                     if remark_img:
@@ -158,8 +164,9 @@ elif menu == "Progress Dashboard":
     else:
         today = datetime.date.today()
         progress["Date"] = pd.to_datetime(progress["Date"], errors="coerce")
-        today_tests = progress[progress["Date"].dt.date == today]
-        week_tests = progress[progress["Date"] >= datetime.datetime.now() - datetime.timedelta(days=7)]
+        progress["Date"] = pd.to_datetime(progress["Date"], errors='coerce')
+        today_tests = progress[progress["Date"].dt.date == today].copy()
+        week_tests = progress[progress["Date"] >= datetime.datetime.now() - datetime.timedelta(days=7)].copy()
 
         st.metric("Tested Today", len(today_tests))
         st.metric("Tested This Week", len(week_tests))
