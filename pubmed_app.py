@@ -80,7 +80,7 @@ if menu == "Run Tests":
         st.success("Progress reset for this user.")
         st.experimental_rerun()
 
-    view_mode = st.radio("Select View Mode", ["Expanded View", "Table Test View"])
+    view_mode = st.radio("Select View Mode", ["Expanded View"])
 
     if view_mode == "Expanded View":
         for _, row in test_cases.iterrows():
@@ -173,96 +173,6 @@ if menu == "Run Tests":
 
                     save_progress()
                     st.success(f"{tc_id} progress saved.")
-
-    elif view_mode == "Table Test View":
-        st.title("📋 Table Test View")
-
-        merged_df = test_cases.copy()
-
-        # Filter today's progress with 'Tested' status for this user
-        if "Date" in progress.columns and pd.api.types.is_datetime64_any_dtype(progress["Date"]):
-            today_progress = progress[
-                (progress["Date"].dt.date == today) &
-                (progress["User"] == user)
-            ]
-        else:
-            today_progress = pd.DataFrame()
-
-        merged_df["Tested"] = False
-        merged_df["Remarks"] = ""
-        merged_df["Remark Image Filename"] = ""
-
-        for i, row in merged_df.iterrows():
-            tc_id = row["Test Case ID"]
-            filtered = today_progress[today_progress["Test Case ID"] == tc_id]
-            if not filtered.empty:
-                merged_df.at[i, "Tested"] = filtered.iloc[-1]["Status"] == "Tested"
-                merged_df.at[i, "Remarks"] = filtered.iloc[-1]["Remarks"] if pd.notna(filtered.iloc[-1]["Remarks"]) else ""
-                merged_df.at[i, "Remark Image Filename"] = filtered.iloc[-1]["Remark Image Filename"] if pd.notna(filtered.iloc[-1]["Remark Image Filename"]) else ""
-
-        for idx, row in merged_df.iterrows():
-            st.write(f"**{row['Test Case ID']} - {row['Task']}**")
-            col1, col2, col3 = st.columns([1, 3, 3])
-
-            tested_key = f"{row['Test Case ID']}_table_tested"
-            remark_key = f"{row['Test Case ID']}_table_remark"
-            file_key = f"{row['Test Case ID']}_table_file"
-
-            if tested_key not in st.session_state:
-                st.session_state[tested_key] = row["Tested"]
-            if remark_key not in st.session_state:
-                st.session_state[remark_key] = row["Remarks"]
-
-            with col1:
-                tested = st.checkbox("Tested", value=st.session_state[tested_key], key=tested_key)
-            with col2:
-                remark = st.text_area("Remarks", value=st.session_state[remark_key], key=remark_key)
-            with col3:
-                uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"], key=file_key)
-
-            if st.button(f"Save {row['Test Case ID']} Progress"):
-                st.session_state[tested_key] = tested
-                st.session_state[remark_key] = remark
-
-                if "Date" in progress.columns and pd.api.types.is_datetime64_any_dtype(progress["Date"]):
-                    filtered = progress[
-                        (progress["Test Case ID"] == row["Test Case ID"]) &
-                        (progress["Date"].dt.date == today) &
-                        (progress["User"] == user)
-                    ]
-                else:
-                    filtered = pd.DataFrame()
-
-                remark_img_filename = ""
-                if not filtered.empty:
-                    idx_prog = filtered.index[-1]
-                    remark_img_filename = progress.at[idx_prog, "Remark Image Filename"]
-                else:
-                    idx_prog = None
-
-                if uploaded_file:
-                    safe_img_name = f"{row['Test Case ID']}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{uploaded_file.name}"
-                    image_path = os.path.join(IMAGE_DIR, safe_img_name)
-                    with open(image_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-                    remark_img_filename = safe_img_name
-
-                new_entry = {
-                    "Test Case ID": row["Test Case ID"],
-                    "Date": datetime.datetime.now(),
-                    "Status": "Tested" if tested else "Not Tested",
-                    "Remarks": remark,
-                    "User": user,
-                    "Remark Image Filename": remark_img_filename
-                }
-
-                if idx_prog is None:
-                    progress.loc[len(progress)] = new_entry
-                else:
-                    progress.loc[idx_prog] = new_entry
-
-                save_progress()
-                st.success(f"{row['Test Case ID']} progress saved.")
 
 elif menu == "Edit Test Cases":
     st.title("📝 Edit / Add Test Cases")
