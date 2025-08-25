@@ -239,18 +239,58 @@ elif menu == "Progress Dashboard":
         st.dataframe(progress.sort_values(by="Date", ascending=False))
 
 elif menu == "Download Report":
+    from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as XLImage
+    from io import BytesIO
+
     st.title("📥 Download Report")
 
     if progress.empty:
         st.info("No progress data to download.")
     else:
-        csv = progress.to_csv(index=False).encode('utf-8')
+        st.write("This will generate an Excel report with embedded images.")
+
+        def export_progress_with_images(progress_df):
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Progress Report"
+
+            headers = list(progress_df.columns)
+            ws.append(headers)
+
+            for idx, row in progress_df.iterrows():
+                row_data = [row[col] for col in headers]
+                ws.append(row_data)
+
+                # Add image if available
+                img_filename = row.get("Remark Image Filename", "")
+                if pd.notna(img_filename) and img_filename.strip():
+                    img_path = os.path.join(IMAGE_DIR, img_filename)
+                    if os.path.exists(img_path):
+                        try:
+                            img = XLImage(img_path)
+                            img.width = 100
+                            img.height = 100
+                            # Assuming image is in the last column
+                            cell_coord = f"{chr(65 + headers.index('Remark Image Filename'))}{idx + 2}"
+                            ws.add_image(img, cell_coord)
+                        except Exception as e:
+                            print(f"Failed to insert image: {e}")
+
+            # Save to BytesIO for download
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+            return output
+
+        excel_data = export_progress_with_images(progress)
         st.download_button(
-            label="Download Progress CSV",
-            data=csv,
-            file_name=f"{user}_progress_report_{today}.csv",
-            mime="text/csv"
+            label="📥 Download Progress Excel with Images",
+            data=excel_data,
+            file_name=f"{user}_progress_report_{today}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
 elif menu == "Manage Users":
     st.title("👥 Manage Users")
 
