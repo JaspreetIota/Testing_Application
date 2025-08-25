@@ -3,6 +3,8 @@ import pandas as pd
 import datetime
 import os
 import re
+import smtplib
+from email.message import EmailMessage
 
 # ---------- CONFIG ----------
 TEST_CASES_FILE = "test_cases.xlsx"
@@ -248,8 +250,6 @@ elif menu == "Download Report":
     if progress.empty:
         st.info("No progress data to download.")
     else:
-        st.write("This will generate an Excel report with embedded images.")
-
         def export_progress_with_images(progress_df):
             wb = Workbook()
             ws = wb.active
@@ -262,7 +262,6 @@ elif menu == "Download Report":
                 row_data = [row[col] for col in headers]
                 ws.append(row_data)
 
-                # Add image if available
                 img_filename = row.get("Remark Image Filename", "")
                 if pd.notna(img_filename) and img_filename.strip():
                     img_path = os.path.join(IMAGE_DIR, img_filename)
@@ -271,25 +270,61 @@ elif menu == "Download Report":
                             img = XLImage(img_path)
                             img.width = 100
                             img.height = 100
-                            # Assuming image is in the last column
                             cell_coord = f"{chr(65 + headers.index('Remark Image Filename'))}{idx + 2}"
                             ws.add_image(img, cell_coord)
                         except Exception as e:
                             print(f"Failed to insert image: {e}")
 
-            # Save to BytesIO for download
             output = BytesIO()
             wb.save(output)
             output.seek(0)
             return output
 
         excel_data = export_progress_with_images(progress)
+
         st.download_button(
             label="📥 Download Progress Excel with Images",
             data=excel_data,
             file_name=f"{user}_progress_report_{today}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+
+        st.divider()
+        st.subheader("📧 Send Report by Email")
+
+        recipient_email = st.text_input("Recipient Email Address")
+        send_button = st.button("Send Report")
+
+        if send_button:
+            if not recipient_email.strip():
+                st.warning("Please enter a valid email address.")
+            else:
+                try:
+                    # EMAIL CONFIG
+                    sender_email = "your_email@example.com"
+                    sender_password = "your_app_password"  # Use app password
+                    subject = f"Test Progress Report - {user} - {today}"
+
+                    msg = EmailMessage()
+                    msg['Subject'] = subject
+                    msg['From'] = sender_email
+                    msg['To'] = recipient_email
+                    msg.set_content(f"Hi,\n\nPlease find attached the test progress report for {user} on {today}.\n\nRegards,\nQA Team")
+
+                    msg.add_attachment(
+                        excel_data.read(),
+                        maintype='application',
+                        subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        filename=f"{user}_progress_report_{today}.xlsx"
+                    )
+
+                    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+                        smtp.login(sender_email, sender_password)
+                        smtp.send_message(msg)
+
+                    st.success(f"Email sent to {recipient_email}")
+                except Exception as e:
+                    st.error(f"Failed to send email: {e}")
 
 elif menu == "Manage Users":
     st.title("👥 Manage Users")
