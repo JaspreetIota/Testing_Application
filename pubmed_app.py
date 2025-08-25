@@ -25,7 +25,7 @@ def get_user_progress_file(user):
 
 # ---------- LOAD USER ----------
 st.sidebar.title("🧪 Test Case Tracker")
-menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report"])
+menu = st.sidebar.radio("Navigation", ["Run Tests", "Edit Test Cases", "Progress Dashboard", "Download Report", "Manage Users"])
 
 user = st.sidebar.text_input("Tester Name", value="Tester").strip()
 if not user:
@@ -251,3 +251,44 @@ elif menu == "Download Report":
             file_name=f"{user}_progress_report_{today}.csv",
             mime="text/csv"
         )
+elif menu == "Manage Users":
+    st.title("👥 Manage Users")
+
+    # List existing users from progress files
+    user_files = [f for f in os.listdir(PROGRESS_DIR) if f.endswith("_progress.csv")]
+    existing_users = [re.sub(r"_progress\.csv$", "", f).replace("_", " ") for f in user_files]
+
+    st.subheader("Existing Users")
+    if not existing_users:
+        st.info("No users found.")
+    else:
+        for username in existing_users:
+            col1, col2 = st.columns([3, 1])
+            col1.write(username)
+            if col2.button("Delete", key=f"del_{username}"):
+                safe_user = re.sub(r'\W+', '_', username)
+                filepath = get_user_progress_file(safe_user)
+                try:
+                    os.remove(filepath)
+                    st.success(f"Deleted progress for user: {username}")
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"Error deleting user file: {e}")
+
+    st.divider()
+    st.subheader("Add New User")
+    new_user = st.text_input("Enter new user name").strip()
+    if st.button("Add User"):
+        if not new_user:
+            st.warning("User name cannot be empty.")
+        else:
+            safe_user = re.sub(r'\W+', '_', new_user)
+            new_user_file = get_user_progress_file(safe_user)
+            if os.path.exists(new_user_file):
+                st.warning("User already exists.")
+            else:
+                # Create empty progress file for the new user
+                empty_progress = pd.DataFrame(columns=["Test Case ID", "Date", "Status", "Remarks", "User", "Remark Image Filename"])
+                empty_progress.to_csv(new_user_file, index=False)
+                st.success(f"User '{new_user}' added.")
+                st.experimental_rerun()
